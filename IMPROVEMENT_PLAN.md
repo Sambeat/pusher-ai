@@ -47,19 +47,15 @@ merged into `main`), and T6 is recommended after T3.
 4. The move/undo pair and `createMemento`/`revertToState` must remain exact —
    the search and the timeout fallback rely on them.
 
-### Build & test (until T1 lands)
+### Build & test
+T1 has landed: from the repo root, one command downloads the pinned test jars
+(if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
-# JDK 17+ required. From the repo root:
-mkdir -p lib
-curl -sSL -o lib/junit-4.13.2.jar      https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar
-curl -sSL -o lib/hamcrest-core-1.3.jar https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar
-javac -cp lib/junit-4.13.2.jar -d out $(find src -name '*.java')
-java -cp out:lib/junit-4.13.2.jar:lib/hamcrest-core-1.3.jar \
-     org.junit.runner.JUnitCore \
-     tests.GameBoardTest tests.BoardSquareTest tests.PusheeTest tests.PusherTest \
-     tests.GameAnalyzerTest tests.BugProofTest tests.GameTreeTest
+./build.sh test
 # Expected: OK (42 tests). GameTreeTest takes ~5 s (real time-limited searches).
 ```
+JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
+sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
 
 ### Per-task workflow
 1. `git checkout main && git checkout -b <task-id>-<short-name>`.
