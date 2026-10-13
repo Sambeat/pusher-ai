@@ -3,8 +3,8 @@
 Each task below is an **independent work order**. An AI agent (or person) can pick up
 any single task using only this file + the repository, with no follow-up questions.
 Tasks are grouped in two parallel tracks; the only hard dependency is that every
-task is based on the `fix/bugs-and-tests` branch (already merged or mergeable),
-and T6 is recommended after T3.
+task is based on `main` (the bug fixes from `fix/bugs-and-tests` are already
+merged into `main`), and T6 is recommended after T3.
 
 ---
 
@@ -62,14 +62,13 @@ java -cp out:lib/junit-4.13.2.jar:lib/hamcrest-core-1.3.jar \
 ```
 
 ### Per-task workflow
-1. `git checkout fix/bugs-and-tests && git checkout -b <task-id>-<short-name>`.
+1. `git checkout main && git checkout -b <task-id>-<short-name>`.
 2. Write the failing test(s) from the acceptance criteria first.
 3. Implement. Do not touch anything outside the listed files unless the
    acceptance criteria require it.
 4. Full suite green (42 + your new tests), run twice (two tests are
    shuffle-sensitive: run `tests.GameTreeTest` a second time).
-5. Commit with a message starting `T<n>:`. Push. Open a PR against
-   `fix/bugs-and-tests`.
+5. Commit with a message starting `T<n>:`. Push. Open a PR against `main`.
 
 ---
 
@@ -200,8 +199,8 @@ can be *quantified*, and regressions caught.
     constructor overload).
 - The harness must detect and report (not crash on): null move (stuck side)
   and games > 200 plies.
-- **Baseline:** run `--games 10 --budget 2000 --seed 42` on the
-  `fix/bugs-and-tests` branch and record the JSON output in the PR
+- **Baseline:** run `--games 10 --budget 2000 --seed 42` on `main`
+  (the pre-T3/T4/T6 state) and record the JSON output in the PR
   description. Later tasks quote this baseline.
 
 **Acceptance.** `java -cp out client.Bench --games 3 --budget 1000 --seed 1`
