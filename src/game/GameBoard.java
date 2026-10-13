@@ -19,6 +19,19 @@ public class GameBoard {
     private static GameBoard instance = new GameBoard();
 
     public static final int GAME_BOARD_LENGTH = 8;
+
+    /**
+     * Row 0 (top of the board): BLACK's goal row. Any BLACK piece (Pusher or
+     * Pushee) on this row wins. See docs/RULES.md (item 1).
+     */
+    public static final int BLACK_GOAL_ROW = 0;
+
+    /**
+     * Bottom row: WHITE's goal row. Any WHITE piece (Pusher or Pushee) on this
+     * row wins. See docs/RULES.md (item 1).
+     */
+    public static final int WHITE_GOAL_ROW = GAME_BOARD_LENGTH - 1;
+
     private static final String LARGE_SPACER = "||";
     private static final String SMALL_SPACER = "|";
     private static final String HORIZONTAL_SPACER =
@@ -212,7 +225,7 @@ public class GameBoard {
      */
     public BoardSquare getSquare(int i, int j){
 
-        if ((i >= 0 && j >= 0) && (i < 8 && j < 8))
+        if ((i >= 0 && j >= 0) && (i < GAME_BOARD_LENGTH && j < GAME_BOARD_LENGTH))
             return board[to1D(i, j)];
         else
             return null;
@@ -445,12 +458,12 @@ public class GameBoard {
      */
     public Player winner(){
 
-        for (int i = 0; i < 8; i++){
-            Piece toCheck = board[to1D(0, i)].getPiece();
+        for (int i = 0; i < GAME_BOARD_LENGTH; i++){
+            Piece toCheck = board[to1D(BLACK_GOAL_ROW, i)].getPiece();
             if (toCheck != null && toCheck.getOwner() == Player.BLACK)
                 return Player.BLACK;
 
-            toCheck = board[to1D(7, i)].getPiece();
+            toCheck = board[to1D(WHITE_GOAL_ROW, i)].getPiece();
             if (toCheck != null && toCheck.getOwner() == Player.WHITE)
                 return Player.WHITE;
         }
