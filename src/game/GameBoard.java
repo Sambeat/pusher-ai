@@ -454,6 +454,8 @@ public class GameBoard {
 
     /**
      * Verify if any player has won and thus if the game should end.
+     * BLACK's goal row is scanned in full before WHITE's: if both sides have a
+     * piece on their goal row at the same time, BLACK wins the tie.
      * @return The Player who won the game or null if the game is not done.
      */
     public Player winner(){
@@ -462,8 +464,10 @@ public class GameBoard {
             Piece toCheck = board[to1D(BLACK_GOAL_ROW, i)].getPiece();
             if (toCheck != null && toCheck.getOwner() == Player.BLACK)
                 return Player.BLACK;
+        }
 
-            toCheck = board[to1D(WHITE_GOAL_ROW, i)].getPiece();
+        for (int i = 0; i < GAME_BOARD_LENGTH; i++){
+            Piece toCheck = board[to1D(WHITE_GOAL_ROW, i)].getPiece();
             if (toCheck != null && toCheck.getOwner() == Player.WHITE)
                 return Player.WHITE;
         }

@@ -111,24 +111,18 @@ public class RulesContractTest {
     }
 
     /**
-     * Characterization of the current scan order: winner() walks columns 0..7
-     * and checks each column's BLACK goal square before its WHITE goal square.
-     * With both sides on their goal row at once, the side whose piece is on the
-     * lowest-numbered occupied column wins — here White on column 3 beats
-     * Black on column 4.
+     * Rule (deliberate decision): when both sides are on their goal row at the
+     * same time, BLACK always wins the tie — no matter which columns the pieces
+     * are on. winner() scans BLACK's goal row in full before WHITE's.
      */
     @Test
-    public void bothSidesOnGoalRowsColumnMajorScan() {
+    public void bothSidesOnGoalRowsBlackAlwaysWinsTheTie() {
         board.reset();
-        board.putPiece(new Pusher(Player.WHITE), 7, 3);
-        board.putPiece(new Pusher(Player.BLACK), 0, 4);
-        assertEquals(Player.WHITE, board.winner());
+        board.putPiece(new Pusher(Player.WHITE), 7, 3); // lower column...
+        board.putPiece(new Pusher(Player.BLACK), 0, 4); // ...yet BLACK still wins
+        assertEquals(Player.BLACK, board.winner());
     }
 
-    /**
-     * Within a single column the BLACK goal square is checked first: same
-     * column, both on their goal row, BLACK wins.
-     */
     @Test
     public void bothSidesOnGoalRowsSameColumnBlackWins() {
         board.reset();

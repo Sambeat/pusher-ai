@@ -23,11 +23,12 @@ increasing rows, BLACK toward decreasing rows.
   immediately: BLACK on row 0 (`GameBoard.BLACK_GOAL_ROW`), WHITE on row 7
   (`GameBoard.WHITE_GOAL_ROW`).
 - A piece on its own goal row does not win.
-- If both sides have a piece on their goal row at the same time, `winner()`
-  walks the columns 0..7 and checks each column's BLACK goal square before its
-  WHITE goal square: the side whose piece is on the lowest-numbered occupied
-  column wins, and within one column BLACK wins. There is no "double win"
-  concept.
+- If both sides have a piece on their goal row at the same time, **BLACK
+  always wins the tie**, regardless of the columns: `winner()` scans BLACK's
+  goal row in full before WHITE's. (Deliberate project decision — the previous
+  column-major scan let a WHITE piece in a lower-numbered column win the tie;
+  that was never intended. Whether the server's real rules match is still an
+  open question below.) There is no "double win" concept.
 - The win is detected at every search node in `client.GameTree.alphaBeta`
   (terminal scores `±(MAX/MIN ∓ turnNumber)`); the board model alone only
   provides `winner()`.
@@ -127,7 +128,8 @@ and it is not verified which one the server actually sends.
 ## Open questions (for the server owner)
 
 1. **Win condition:** does a Pusher landing on the goal row count as a win, or
-   only a Pushee? (Item 1.)
+   only a Pushee? And if both sides reach their goal row in the same position,
+   is a BLACK win the correct outcome? (Item 1.)
 2. **Captures:** are captures allowed at all? If yes, is diagonal-only capture
    (no straight-ahead capture) correct? (Item 2.)
 3. **Stalemate:** a player with no legal move — loss, draw, or game continues?
