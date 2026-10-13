@@ -58,7 +58,7 @@ public class GameTree {
         int level = 1;
         GameStep snapshot = board.createMemento();
 
-        Object[] moveInfo = {,};
+        Object[] moveInfo = null;
 
         do {
             shuffleDepth = level;
