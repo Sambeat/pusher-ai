@@ -16,19 +16,28 @@ public class GameTree {
 
     public static final int MAX_TIME_MILLIS = 4950;
 
+    /**
+     * Score margin separating a win by reaching the goal row from a win by
+     * leaving the opponent without any legal move. Both are wins, but the
+     * goal row is the actual objective of the game, so at equal depth a goal
+     * row win must always rank above a stalemate win (and symmetrically a
+     * stalemate loss ranks above a goal row loss).
+     */
+    public static final int STALEMATE_MARGIN = 1000;
+
     private static GameBoard board = GameBoard.getInstance();
 
     private Player maxPlayer;
     private Player minPlayer;
     private Strategy strategy;
 
-    private ArrayList<Move> iterativeMoveList = new ArrayList<>(10);
-
     //Starting time of tree generation
     private long start;
 
-    //The depth at which to shuffle the moves. Usually the first level.
-    private int shuffleDepth;
+    // Used to randomize the move order on each search (tie-breaking and
+    // move ordering). A fresh sequence is created for every getBestMoveQuick()
+    // call so repeated searches on the same position are not deterministic.
+    private Random random;
 
 
     public GameTree(Player maxPlayer, Player minPlayer){
@@ -51,21 +60,21 @@ public class GameTree {
     /**
      * Uses iterative deepening to dynamically look ahead as much as possible
      * to get the best move to play.
-     * @return The best move to play.
+     * @return The best move to play, or null when the side to move has no
+     *         legal move (e.g. the game is already lost).
      */
     public Move getBestMoveQuick(){
         start = System.currentTimeMillis();
+        random = new Random();
         int level = 1;
         GameStep snapshot = board.createMemento();
 
         Object[] moveInfo = null;
 
         do {
-            shuffleDepth = level;
-
             try {
-                moveInfo = principalVariationAlphaBeta(level++, maxPlayer, Integer.MIN_VALUE,
-                        Integer.MAX_VALUE, iterativeMoveList);
+                moveInfo = alphaBeta(level++, maxPlayer, Integer.MIN_VALUE,
+                        Integer.MAX_VALUE);
             } catch (Exception e){
                 //When minmax can't complete in time, it will leave the board
                 //in a messed up state. We do a revert to its initial state then.
@@ -80,45 +89,52 @@ public class GameTree {
         }
         while (System.currentTimeMillis() - start <= MAX_TIME_MILLIS);
 
-        return (Move)moveInfo[1];
+        return moveInfo == null ? null : (Move)moveInfo[1];
     }
 
     /**
      * Look ahead a specified number of move to decide the best move to play.
      * @param depth The number of move ahead to look.
-     * @return The best move to play
+     * @return The best Move, or null when the side to move has no legal move.
      */
     public Move getBestMoveQuick(int depth){
-        shuffleDepth = depth;
         start = System.currentTimeMillis();
+        random = new Random();
         try {
-            return (Move) principalVariationAlphaBeta(depth, maxPlayer, Integer.MIN_VALUE, Integer.MAX_VALUE, iterativeMoveList)[1];
+            return (Move) alphaBeta(depth, maxPlayer, Integer.MIN_VALUE, Integer.MAX_VALUE)[1];
         } catch (Exception e){
             return null;
         }
     }
 
     /**
-     * Inspired by http://www3.ntu.edu.sg/home/ehchua/programming/java/javagame_tictactoe_ai.html
-     * Minmax algorithm with alpha-beta pruning which evaluate every possible
-     * move up to a certain number of turns. Alpha-beta pruning is aided by
-     * a principal variation line of the best sequence of move found by the last
-     * iteration of iterative deepening. This method returns an int
-     * which indicate the best score found in this manner.
+     * Minmax algorithm with alpha-beta pruning which evaluates every possible
+     * move up to a certain number of turns.
+     *
+     * Terminal positions:
+     *  - the max player reached its goal row: huge positive score (earlier wins
+     *    are preferred through the turn number);
+     *  - the min player reached its goal row: huge negative score. The original
+     *    code only detected max player wins, so lost lines were evaluated with
+     *    the static heuristic and the AI never saw the opponent's one-move wins;
+     *  - the side to move has no legal move: it loses, as in checkmate.
+     *
+     * Moves are explored in random order (a fresh sequence per search) so ties
+     * are not always resolved in favor of the first piece of the board setup.
+     *
+     * Returns an Object[] with the first element being the score and the second
+     * element being the best Move.
      * @param depth How many moves to look forward.
      * @param player The Player who would be playing the move.
      * @param alpha The maximum score found yet at that depth level.
      * @param beta The minimum score found yet at that depth level.
-     * @param currentLine The current principalVariation line to fill with the
-     *                    best found move.
      * @return An Object[] with the first element being the score and the second
      * element being the best Move.
      */
-    private Object[] principalVariationAlphaBeta(int depth, Player player, int alpha, int beta, ArrayList<Move> currentLine) throws Exception {
+    private Object[] alphaBeta(int depth, Player player, int alpha, int beta) throws Exception {
         if (System.currentTimeMillis() - start > MAX_TIME_MILLIS){
             throw new Exception("Exceeded time");
         }
-
 
         Player winner = board.winner();
 
@@ -126,9 +142,24 @@ public class GameTree {
             return new Object[]{Integer.MAX_VALUE - board.getTurnNumber(), null};
         }
 
+        if (winner == minPlayer) {
+            return new Object[]{Integer.MIN_VALUE + board.getTurnNumber(), null};
+        }
 
+        ArrayList<Move> legalMoves = new ArrayList<>(board.getAllLegalMovesQuick());
 
-        ArrayList<Move> moveLine = new ArrayList<>(10);
+        if (legalMoves.isEmpty()){
+            //The player to move has no legal move: it loses, as in checkmate.
+            //Returning the passed alpha/beta here (as the original code did)
+            //produced garbage scores that depend on the search window.
+            //The margin keeps this terminal strictly below (above) the goal
+            //row terminal at the same depth, so the AI prefers the actual
+            //objective to stalemating the opponent.
+            return new Object[]{player == maxPlayer
+                    ? Integer.MIN_VALUE + board.getTurnNumber() + STALEMATE_MARGIN
+                    : Integer.MAX_VALUE - board.getTurnNumber() - STALEMATE_MARGIN, null};
+        }
+
         int score;
         Move bestMove = null;
 
@@ -137,37 +168,7 @@ public class GameTree {
             return new Object[] {score, null};
         }
 
-
-        //We first try the previous best branch
-        if (currentLine.size() != 0) {
-            Move principalVariationMove = currentLine.remove(0);
-
-            board.movePiece(principalVariationMove);
-
-            if (player == maxPlayer) {
-                score = (Integer) principalVariationAlphaBeta(depth - 1, minPlayer, alpha, beta, currentLine)[0];
-
-                if (score > alpha) {
-                    alpha = score;
-                    bestMove = principalVariationMove;
-                }
-
-            } else {
-                score = (Integer) principalVariationAlphaBeta(depth - 1, maxPlayer, alpha, beta, currentLine)[0];
-
-                if (score < beta) {
-                    beta = score;
-                    bestMove = principalVariationMove;
-                }
-
-            }
-
-            //Undo move (get previous node state)
-            board.undo(principalVariationMove);
-        }
-
-        //Then we check all other move branches.
-        ArrayList<Move> legalMoves = board.getAllLegalMovesQuick();
+        Collections.shuffle(legalMoves, random);
 
         for (Move move : legalMoves){
 
@@ -175,7 +176,7 @@ public class GameTree {
 
             //Update score with alpha/beta pruning
             if (player == maxPlayer) {
-                score = (Integer) principalVariationAlphaBeta(depth - 1, minPlayer, alpha, beta, moveLine)[0];
+                score = (Integer) alphaBeta(depth - 1, minPlayer, alpha, beta)[0];
 
                 if (score > alpha) {
                     alpha = score;
@@ -183,21 +184,18 @@ public class GameTree {
                 }
 
             } else {
-                score = (Integer) principalVariationAlphaBeta(depth - 1, maxPlayer, alpha, beta, moveLine)[0];
+                score = (Integer) alphaBeta(depth - 1, maxPlayer, alpha, beta)[0];
 
                 if (score < beta) {
                     beta = score;
                     bestMove = move;
                 }
-
             }
 
             //Undo move (get previous node state)
             board.undo(move);
 
             if (alpha >= beta){
-                currentLine.add(0, move);
-                currentLine.addAll(moveLine);
                 break;
             }
         }

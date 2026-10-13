@@ -102,8 +102,14 @@ public abstract class Piece implements Cloneable {
     public boolean hasAdjacentPusher(){
         GameBoard board = GameBoard.getInstance();
 
-        return (board.getSquare(getRow(), getColumn() - 1).getPiece() instanceof  Pusher
-                || board.getSquare(getRow(), getColumn() + 1).getPiece() instanceof Pusher);
+        //Null-safe at the board edges: getSquare() returns null for
+        //off-board coordinates (files A and H).
+        BoardSquare left = board.getSquare(getRow(), getColumn() - 1);
+        if (left != null && left.hasPusher()) {
+            return true;
+        }
+        BoardSquare right = board.getSquare(getRow(), getColumn() + 1);
+        return right != null && right.hasPusher();
     }
 
     /**

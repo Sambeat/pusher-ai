@@ -175,9 +175,9 @@ public class BugProofTest {
     /**
      * It is Black's turn and Black has MORE mobility (7 moves) than White (3 moves).
      * White's score must include only White's own mobility:
-     * material +7 (White) - 3 x 9 (Black, including the defensive +2) = -20,
-     * own mobility 3/2 = +1 -> -19.
-     * The original code adds Black's 7/2 = 3 and returns -17.
+     * material +10 (White pusher: 7 + advancement row 3) - 3 x 9 (Black,
+     * including the defensive +2) = -17, own mobility 3/2 = +1 -> -16.
+     * The original code adds Black's 7/2 = 3 (and no advancement) and returns -17.
      */
     @Test
     public void testWhiteStrategy_mobilityIsOwnPiecesOnly(){
@@ -188,7 +188,7 @@ public class BugProofTest {
         board.putPiece(new Pusher(Player.BLACK), 6, 4);
         board.updateAllLegaLMoves();
 
-        assertEquals(-19, new WhiteStrategy().analyze());
+        assertEquals(-16, new WhiteStrategy().analyze());
     }
 
     // ---------------------------------------------------------------------------------

@@ -70,7 +70,7 @@ public class GameBoard {
      * @return A GameStep object encapsulating the current State.
      */
     public GameStep createMemento(){
-        return new GameStep(board, turnPlayer, killedPieceMap);
+        return new GameStep(board, turnPlayer, killedPieceMap, turnNumber);
     }
 
     /**
@@ -84,6 +84,10 @@ public class GameBoard {
     public void revertToState(GameStep state){
         turnPlayer = state.getTurnPlayer();
         killedPieceMap = state.getHashMap();
+        //The turn number is part of the state too: a search aborted by the time
+        //limit applies some moves without undoing them, which used to leak into
+        //the permanent turn count.
+        turnNumber = state.getTurnNumber();
         pieceList = new ArrayList<>();
         Piece[] piecesToPlace = state.getBoardState();
 
@@ -247,7 +251,8 @@ public class GameBoard {
     }
 
     /**
-     * Remove every Piece from the GameBoard. Also resets the turn number to 0.
+     * Remove every Piece from the GameBoard. Also resets the turn number, the
+     * current player and the killed piece map so a fresh game can start.
      */
     public void reset(){
 
@@ -256,6 +261,8 @@ public class GameBoard {
         }
 
         turnNumber = 0;
+        turnPlayer = Player.WHITE;
+        killedPieceMap = new HashMap<>(40);
         pieceList = new ArrayList<>();
     }
 
@@ -383,6 +390,15 @@ public class GameBoard {
     public void movePiece(Move move){
         BoardSquare origin = move.getPieceLocation();
         BoardSquare destination = move.getDestination();
+
+        Piece movingPiece = origin.getPiece();
+
+        if (movingPiece == null) {
+            //Failing fast here prevents the silent corruption this used to cause:
+            //a move from an empty square "captured" the piece on the destination
+            //square and placed a null piece on the board.
+            throw new IllegalStateException("movePiece: no piece at origin " + origin);
+        }
 
         Piece toKill = destination.getPiece();
 

@@ -39,6 +39,15 @@ public class Move {
     }
 
     @Override
+    public int hashCode(){
+        //equals() is overridden, so hashCode() must be too: killedPieceMap is a
+        //HashMap keyed by Move and only worked by luck of instance identity.
+        int result = pieceLocation.hashCode();
+        result = 31 * result + destination.hashCode();
+        return result;
+    }
+
+    @Override
     public String toString(){
         return pieceLocation.toString() + destination.toString();
     }

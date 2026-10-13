@@ -131,6 +131,12 @@ public class GameBoardTest {
 
     @Test
     public void testCurrentPlayer(){
+        //Self-contained setup: a movePiece() from an empty square is now a
+        //fail-fast error, so the piece to move must exist.
+        board.reset();
+        board.setCurrentPlayer(Player.WHITE);
+        board.putPiece(new Pusher(Player.WHITE), 1, 1);
+
         Player currentPlayer = board.getCurrentPlayer();
         Player expectedPlayer = currentPlayer.other();
 

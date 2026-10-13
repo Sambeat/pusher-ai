@@ -14,10 +14,12 @@ public class GameStep{
     Piece[] boardPieces;
     HashMap<Move, Piece> hashMap;
     Player turnPlayer;
+    int turnNumber;
 
-    public GameStep(BoardSquare[] boardSquares, Player turnPlayer, HashMap<Move, Piece> hashMap) {
+    public GameStep(BoardSquare[] boardSquares, Player turnPlayer, HashMap<Move, Piece> hashMap, int turnNumber) {
         this.turnPlayer = turnPlayer;
         this.hashMap = (HashMap<Move, Piece>) hashMap.clone();
+        this.turnNumber = turnNumber;
         boardPieces = new Piece[GameBoard.GAME_BOARD_LENGTH * GameBoard.GAME_BOARD_LENGTH];
 
         for (int i = 0; i < boardPieces.length; i++){
@@ -43,6 +45,8 @@ public class GameStep{
     public Player getTurnPlayer(){
         return turnPlayer;
     }
+
+    public int getTurnNumber(){ return turnNumber; }
 
     public HashMap<Move, Piece> getHashMap() { return hashMap; }
 

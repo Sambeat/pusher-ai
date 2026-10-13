@@ -14,9 +14,9 @@ import game.Pushee;
 import game.Pusher;
 
 /**
- * PusherApplication is the main class for an artificial intelligence playing
+ * PusherApplication is the main class of an artificial intelligence playing
  * the Pusher game.
- * 
+ *
  * @author Mathieu Ouellet
  * @since 10/29/2015.
  */
@@ -32,7 +32,6 @@ public class PusherApplication {
 	static GameTree gameTree;
 
 	public static void main(String[] args) {
-		//Je suis un changement.
 		Socket MyClient;
 		BufferedInputStream input;
 		BufferedOutputStream output;
@@ -44,52 +43,84 @@ public class PusherApplication {
 			output = new BufferedOutputStream(MyClient.getOutputStream());
 			System.out.println("Got socket with Streams");
 
-			while (1 == 1) {
+			while (true) {
 
-				char cmd = (char) input.read();
-
-				switch (cmd) {
-				case '1':
-					createInitialBoard(input);
-					gameTree = new GameTree(Player.WHITE, Player.BLACK);
-					board.updateAllLegaLMoves();
-
-					move = gameTree.getBestMoveQuick();
-					communicateMove(output, move);
-					break;
-				case '2':
-					createInitialBoard(input);
-					gameTree = new GameTree(Player.BLACK, Player.WHITE);
-					board.updateAllLegaLMoves();
-					break;
-				case '3':
-					if (move != null)
-						board.movePiece(move);
-
-					byte[] aBuffer = new byte[16];
-
-					int size = input.available();
-					input.read(aBuffer, 0, size);
-
-					String s = new String(aBuffer).trim();
-					board.movePiece(Character.getNumericValue(s.charAt(ORIGIN_ROW)) - 1,
-							letterToInt(s.charAt(ORIGIN_COLUMN)),
-							Character.getNumericValue(s.charAt(DESTINATION_ROW)) - 1,
-							letterToInt(s.charAt(DESTINATION_COLUM)));
-
-					move = gameTree.getBestMoveQuick();
-					communicateMove(output, move);
-					board.updateAllLegaLMoves();
-					break;
-				case '4':
-					move = getRandomMove(board.getAllLegalMovesQuick());
-					communicateMove(output, move);
+				int incoming = input.read();
+				if (incoming == -1) {
+					//The server closed the connection: a raw -1 cast to char
+					//used to match no case and spin the loop forever.
+					System.out.println("Server closed the connection.");
 					break;
 				}
+				char cmd = (char) incoming;
 
+				try {
+					switch (cmd) {
+					case '1':
+						//A fresh game: clear whatever the previous game left on
+						//the board (leftover pieces, turn player, turn number,
+						//killed piece map) and any stale move from the old game.
+						board.reset();
+						move = null;
+						createInitialBoard(input);
+						gameTree = new GameTree(Player.WHITE, Player.BLACK);
+						board.updateAllLegaLMoves();
+
+						move = gameTree.getBestMoveQuick();
+						communicateMove(output, move);
+						break;
+					case '2':
+						board.reset();
+						move = null;
+						createInitialBoard(input);
+						gameTree = new GameTree(Player.BLACK, Player.WHITE);
+						board.updateAllLegaLMoves();
+						break;
+					case '3':
+						if (move != null)
+							board.movePiece(move);
+						move = null;
+
+						byte[] aBuffer = new byte[16];
+
+						int size = input.available();
+						if (size > 0) {
+							input.read(aBuffer, 0, size);
+						}
+
+						String s = new String(aBuffer).trim();
+
+						Move opponentMove = parseMove(s);
+						if (opponentMove == null) {
+							//The board would be out of sync with the server from
+							//here on: report it and wait for the next command
+							//instead of corrupting the board state.
+							System.out.println("Could not parse opponent move: [" + s + "]");
+							break;
+						}
+
+						board.movePiece(opponentMove);
+
+						move = gameTree.getBestMoveQuick();
+						communicateMove(output, move);
+						board.updateAllLegaLMoves();
+						break;
+					case '4':
+						ArrayList<Move> legalMoves = board.getAllLegalMovesQuick();
+						move = legalMoves.isEmpty() ? null : getRandomMove(legalMoves);
+						communicateMove(output, move);
+						break;
+					}
+				} catch (Exception e) {
+					//One bad command must not kill the client: the original code
+					//let every non-IOException (NPE on a null move,
+					//StringIndexOutOfBounds on a short move string, ...) crash
+					//the process and drop the connection.
+					e.printStackTrace();
+				}
 			}
 		} catch (IOException e) {
-
+			e.printStackTrace();
 		}
 	}
 
@@ -100,6 +131,14 @@ public class PusherApplication {
 	 * @throws IOException
 	 */
 	private static void communicateMove(BufferedOutputStream output, Move move) throws IOException {
+		if (move == null) {
+			//No legal move (e.g. the side to move is already lost): there is
+			//nothing to send. The original code called move.toString() here and
+			//crashed with a NullPointerException.
+			System.out.println("No legal move to play.");
+			return;
+		}
+
 		String moveParameters = move.toString();
 		output.write(moveParameters.getBytes(), 0, moveParameters.length());
 		output.flush();
@@ -109,8 +148,58 @@ public class PusherApplication {
 	}
 
 	/**
+	 * Parse a move string from the server.
+	 *
+	 * Accepts the compact format this client itself sends ("D2E3":
+	 * origin column, origin row, destination column, destination row) and the
+	 * legacy 7-character layout with the origin at indices 0-1 and the
+	 * destination at indices 5-6.
+	 *
+	 * @param raw The raw move string.
+	 * @return The parsed Move, or null if the string is not a valid move.
+	 */
+	static Move parseMove(String raw) {
+		if (raw == null) {
+			return null;
+		}
+		String s = raw.replaceAll("\\s", "");
+
+		if (s.length() == 4 && isValidMoveQuad(s, 0, 1, 2, 3)) {
+			return buildMove(s, 0, 1, 2, 3);
+		}
+		if (s.length() >= 7 && isValidMoveQuad(s, ORIGIN_COLUMN, ORIGIN_ROW, DESTINATION_COLUM, DESTINATION_ROW)) {
+			return buildMove(s, ORIGIN_COLUMN, ORIGIN_ROW, DESTINATION_COLUM, DESTINATION_ROW);
+		}
+		return null;
+	}
+
+	private static boolean isValidMoveQuad(String s, int oc, int or, int dc, int dr) {
+		return isColumnLetter(s.charAt(oc))
+				&& isRowDigit(s.charAt(or))
+				&& isColumnLetter(s.charAt(dc))
+				&& isRowDigit(s.charAt(dr));
+	}
+
+	private static boolean isColumnLetter(char c) {
+		return c >= 'A' && c <= 'H';
+	}
+
+	private static boolean isRowDigit(char c) {
+		return c >= '1' && c <= '8';
+	}
+
+	private static Move buildMove(String s, int oc, int or, int dc, int dr) {
+		int originRow = s.charAt(or) - '1';
+		int originCol = s.charAt(oc) - 'A';
+		int destRow = s.charAt(dr) - '1';
+		int destCol = s.charAt(dc) - 'A';
+
+		return new Move(board.getSquare(originRow, originCol), board.getSquare(destRow, destCol));
+	}
+
+	/**
 	 * Create the initial game board of the game.
-	 * 
+	 *
 	 * @param input
 	 * @throws IOException
 	 */
@@ -118,6 +207,9 @@ public class PusherApplication {
 		byte[] aBuffer = new byte[1024];
 
 		int size = input.available();
+		if (size <= 0) {
+			throw new IOException("No board data received.");
+		}
 		input.read(aBuffer, 0, size);
 		String s = new String(aBuffer).trim();
 		System.out.println(s);
@@ -154,23 +246,22 @@ public class PusherApplication {
 
 	/**
 	 * Chose a move randomly based on all legal moves.
-	 * 
+	 *
 	 * @param legalMoves Array of all legal moves.
 	 * @return The chosen move.
 	 */
 	static private Move getRandomMove(ArrayList<Move> legalMoves) {
 		Random random = new Random();
 		int r = random.nextInt(legalMoves.size());
-		
-		
+
 		return legalMoves.get(r);
 	}
 
 	/**
 	 * Transform the column's letter into an int.
-	 * 
+	 *
 	 * @param letter
-	 * 
+	 *
 	 * @return an int representing the column.
 	 */
 	static private int letterToInt(char letter) {
@@ -194,7 +285,6 @@ public class PusherApplication {
 
 		default:
 			return -1;
-
 		}
 	}
 }
