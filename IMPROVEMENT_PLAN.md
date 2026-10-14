@@ -52,7 +52,9 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 (if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
 ./build.sh test
-# Expected: OK (42 tests). GameTreeTest takes ~5 s (real time-limited searches).
+# Expected: OK (64 tests). GameTreeTest takes ~5 s (real time-limited searches).
+# (Count history: 42 at T1, +20 from T5's RulesContractTest, +2 from T7's
+# BenchTest.)
 ```
 JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
 sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
@@ -62,7 +64,7 @@ sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
 2. Write the failing test(s) from the acceptance criteria first.
 3. Implement. Do not touch anything outside the listed files unless the
    acceptance criteria require it.
-4. Full suite green (42 + your new tests), run twice (two tests are
+4. Full suite green (64 + your new tests), run twice (two tests are
    shuffle-sensitive: run `tests.GameTreeTest` a second time).
 5. Commit with a message starting `T<n>:`. Push. Open a PR against `main`.
 
@@ -207,6 +209,24 @@ unchanged.
 **Verification.** Full suite green; run bench twice with the same seed →
 identical summaries (determinism check).
 
+**Findings (baseline, recorded in PR #3 against the pre-T3/T4/T6 engine —
+the T7 branch's `GameTree` delta is additive-only and the full suite is
+green):**
+- `--games 10 --budget 2000 --seed 42` →
+  `{"games":10,"whiteWins":5,"blackWins":5,"avgPlies":13.00,
+  "avgMaxDepth":13.00,"avgMsPerMove":145.36}`
+- **The starter wins every game in exactly 13 plies, identical across
+  seeds.** The engine converges on a forced line: the side to move first
+  converts a forced win every time, and the second side never defends it.
+  T4's threat/safety terms must first be checked against the second side's
+  defense of that line (expect the 5/5 split to shift or avgPlies to move);
+  T3 should be checked against the 13-ply closing sequence.
+- avgMsPerMove ≈ 145 ms at a 2000 ms budget: the ±9000 forced-win cutoff
+  ends most searches far below budget, so T6's depth gains will show up
+  mainly in the pre-cutoff opening moves.
+- Determinism: same seed replays identical winners/plies/depths; ms fields
+  vary with wall clock (the iterative-deepening stop is time-based).
+
 **Risk.** Low. **Estimate.** 1 agent-session.
 
 ---
@@ -250,8 +270,9 @@ before an opponent's capture.
    `getBestMoveQuick()` still returns within `MAX_TIME_MILLIS + 500`.
 4. Full suite (incl. `BugProofTest`) green ×2.
 
-**Verification.** T7 bench (if available): avg max depth and/or win rate vs.
-the recorded baseline; at minimum the suite + the two tactical tests.
+**Verification.** T7 bench (landed — see T7 findings): avg max depth
+and/or win rate vs. the recorded baseline; at minimum the suite + the two
+tactical tests.
 
 **Risk.** Medium (perf; q-explosion is bounded by the 8-ply cap and the fact
 that captures are rare in this game — average capture branching ≈ 1–2).
@@ -300,7 +321,8 @@ new `src/tests/ThreatEvalTest.java`. No search changes.
 6. Full suite green ×2.
 
 **Verification.** T7 bench vs. baseline (expect the ready-to-win term to raise
-win rate or reduce average plies to win).
+win rate or reduce average plies to win; see T7 findings on the 13-ply
+forced starter win).
 
 **Risk.** Low (pure evaluation). Main trap: accidentally crossing the 9000
 bound — the property test above guards it. **Estimate.** 1 agent-session.
