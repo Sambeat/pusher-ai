@@ -2,6 +2,7 @@ package client;
 
 import game.GameBoard;
 import game.Move;
+import game.Piece;
 import game.Player;
 
 import java.util.*;
@@ -24,6 +25,14 @@ public class GameTree {
      * stalemate loss ranks above a goal row loss).
      */
     public static final int STALEMATE_MARGIN = 1000;
+
+    /**
+     * Quiescence extension bound (T3): a q-node deeper than this many
+     * capture plies returns its stand-pat score. Captures are rare in this
+     * game (average capture branching ~1-2), so the bounded extension is
+     * cheap while killing the horizon effect on the lines that matter.
+     */
+    private static final int Q_MAX_DEPTH = 8;
 
     private static GameBoard board = GameBoard.getInstance();
 
@@ -199,6 +208,11 @@ public class GameTree {
      * element being the best Move.
      */
     private Object[] alphaBeta(int depth, Player player, int alpha, int beta) throws Exception {
+        return alphaBeta(depth, player, alpha, beta, 0);
+    }
+
+    private Object[] alphaBeta(int depth, Player player, int alpha, int beta,
+                               int qDepth) throws Exception {
         if (System.currentTimeMillis() - start > timeBudgetMillis){
             throw new Exception("Exceeded time");
         }
@@ -227,13 +241,14 @@ public class GameTree {
                     : Integer.MAX_VALUE - board.getTurnNumber() - STALEMATE_MARGIN, null};
         }
 
+        if (depth == 0){
+            // T3: at the horizon, do not trust the static score while
+            // captures are available: extend through captures only.
+            return quiescence(player, legalMoves, alpha, beta, qDepth);
+        }
+
         int score;
         Move bestMove = null;
-
-        if (depth == 0){
-            score = GameAnalyzer.analyze(board, strategy);
-            return new Object[] {score, null};
-        }
 
         Collections.shuffle(legalMoves, random);
 
@@ -272,6 +287,100 @@ public class GameTree {
                         new Integer(alpha) : new Integer(beta),
                 bestMove};
 
+    }
+
+    /**
+     * Quiescence search (T3): stand-pat + captures-only extension run at
+     * every depth-0 node instead of returning the static score directly.
+     *
+     * stand-pat is the static evaluation. At a max node: if stand-pat >=
+     * beta the node fails high and stand-pat is returned; otherwise every
+     * capture is searched (recursing into further q-nodes) and the best of
+     * stand-pat and the capture replies is returned. At a min node the
+     * logic is symmetric with alpha. Terminal positions (winner, no legal
+     * moves) keep their exact scores: alphaBeta checks them at the entry of
+     * every q-node, so a capture onto the goal row scores as an immediate
+     * win/loss. The extension is bounded by Q_MAX_DEPTH; beyond it the
+     * stand-pat value is returned.
+     *
+     * q-nodes go through alphaBeta, so they obey the same time check as
+     * normal nodes; on timeout the exception propagates up and the memento
+     * revert in getBestMoveQuick() still restores the board exactly (the
+     * move/undo pairs add no state of their own).
+     *
+     * Returns an Object[] with the first element being the score and the
+     * second element being null (q-nodes never choose a root move).
+     */
+    private Object[] quiescence(Player player, ArrayList<Move> legalMoves,
+                                int alpha, int beta, int qDepth) throws Exception {
+        int standPat = GameAnalyzer.analyze(board, strategy);
+
+        if (player == maxPlayer) {
+
+            if (standPat >= beta || qDepth >= Q_MAX_DEPTH)
+                return new Object[]{standPat, null};
+
+            int best = standPat;
+            if (standPat > alpha)
+                alpha = standPat;
+
+            for (Move move : legalMoves){
+                if (!isCapture(move, player))
+                    continue;
+
+                board.movePiece(move);
+                int score = (Integer) alphaBeta(0, minPlayer, alpha, beta, qDepth + 1)[0];
+                board.undo(move);
+
+                if (score > best)
+                    best = score;
+
+                if (best >= beta)
+                    break;
+            }
+
+            return new Object[]{best, null};
+
+        } else {
+
+            if (standPat <= alpha || qDepth >= Q_MAX_DEPTH)
+                return new Object[]{standPat, null};
+
+            int best = standPat;
+            if (standPat < beta)
+                beta = standPat;
+
+            for (Move move : legalMoves){
+                if (!isCapture(move, player))
+                    continue;
+
+                board.movePiece(move);
+                int score = (Integer) alphaBeta(0, maxPlayer, alpha, beta, qDepth + 1)[0];
+                board.undo(move);
+
+                if (score < best)
+                    best = score;
+
+                if (best <= alpha)
+                    break;
+            }
+
+            return new Object[]{best, null};
+
+        }
+    }
+
+    /**
+     * A capture is a diagonal move onto a square occupied by an enemy
+     * piece. Straight-ahead moves require an empty square and friendly
+     * pieces are never legal destinations, so any occupied destination in
+     * a legal move list is an enemy piece; the owner check keeps this true
+     * even if that ever stops being the case.
+     */
+    private static boolean isCapture(Move move, Player player){
+        Piece destinationPiece = move.getDestination().getPiece();
+        return destinationPiece != null
+                && destinationPiece.getOwner() != player;
     }
 
 }
