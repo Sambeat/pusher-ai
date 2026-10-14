@@ -18,6 +18,10 @@ import org.junit.*;
  *   - testWhiteStrategy_mobilityIsOwnPiecesOnly       (mobility counted for side to move, not White)
  *   - testMementoRestoresTurnNumber                   (turn number not part of the memento)
  *   - testMovePieceEmptyOrigin_doesNotCorruptBoard    (movePiece silently kills the destination piece)
+ *   - testNestedCaptureSameSquarePair_restoresOuterVictim (capture log lost victims of nested
+ *                                                       same-square-pair captures, T2)
+ *   - testRevertToState_refreshesLegalMoveLists       (revert left cached move lists stale, T2)
+ *   - testSearchLeavesBoardUntouched                  (search corruption symptom, T2)
  *
  * testWhiteStrategy_edgeFilePusheeWorthZero and testNoLegalMovesReturnsNull are
  * characterization tests: they pin intended engine behavior (they pass before and after).
@@ -249,5 +253,113 @@ public class BugProofTest {
         // ... and must not have killed the piece on the destination square
         assertTrue("victim on D4 was corrupted by the illegal move",
                 board.getPiece(4, 3) instanceof Pusher);
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Bug (found by T2): the capture log was a HashMap<Move, Piece> keyed by the move's
+    // square pair. Two nested captures on the SAME square pair shared one key: the inner
+    // capture's victim overwrote the outer's record, and when the outer capture was
+    // undone its victim was never restored. The piece silently vanished from the board
+    // and every later search on the drifted state played phantom moves (the client
+    // crashed with "movePiece: no piece at origin" or answered from a corrupted tree).
+    // The line below replays that pattern: E5F6 captures a Black Pusher, then (after
+    // the origin is re-occupied and the destination re-captured) E5F6 captures again.
+    // ---------------------------------------------------------------------------------
+
+    @Test
+    public void testNestedCaptureSameSquarePair_restoresOuterVictim(){
+        setUpWhiteToMove();
+        Pusher white1 = new Pusher(Player.WHITE);
+        Pusher white2 = new Pusher(Player.WHITE);
+        Pusher black1 = new Pusher(Player.BLACK);
+        Pusher victim = new Pusher(Player.BLACK);
+
+        board.putPiece(white1, 4, 4); //E5
+        board.putPiece(victim, 5, 5); //F6
+        board.putPiece(white2, 3, 5); //F4
+        board.putPiece(black1, 7, 3); //D8
+        board.updateAllLegaLMoves();
+
+        Move e5f6 = new Move(board.getSquare(4, 4), board.getSquare(5, 5));
+        board.movePiece(e5f6);                                //W: E5F6 captures the victim
+        board.movePiece(new Move(board.getSquare(7, 3), board.getSquare(6, 4))); //B: D8E7
+        board.movePiece(new Move(board.getSquare(3, 5), board.getSquare(4, 4))); //W: F4E5
+        board.movePiece(new Move(board.getSquare(6, 4), board.getSquare(5, 5))); //B: E7F6 captures white1
+        board.movePiece(e5f6);                                //W: E5F6 captures black1 (same square pair as the first capture!)
+
+        //Undo in reverse order (as the search does).
+        board.undo(e5f6);
+        board.undo(new Move(board.getSquare(6, 4), board.getSquare(5, 5)));
+        board.undo(new Move(board.getSquare(3, 5), board.getSquare(4, 4)));
+        board.undo(new Move(board.getSquare(7, 3), board.getSquare(6, 4)));
+        board.undo(e5f6);
+
+        assertEquals("a capture victim was lost when nested captures shared a square pair",
+                4, board.getNumberOfPieces());
+        assertNotNull("the outer capture's victim must be restored on F6",
+                board.getPiece(5, 5));
+        assertEquals(Player.BLACK, board.getPiece(5, 5).getOwner());
+        assertNotNull(board.getPiece(4, 4));
+        assertNotNull(board.getPiece(3, 5));
+        assertNotNull(board.getPiece(7, 3));
+        assertEquals(0, board.getTurnNumber());
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Bug (found by T2): revertToState() placed the snapshot pieces row by row and
+    // each placement recomputed that piece's cached legal moves against a board that
+    // was only PARTIALLY restored. Pieces whose forward neighborhood was restored
+    // later kept lists computed for the wrong position; the next search then played
+    // phantom moves from those stale lists.
+    // ---------------------------------------------------------------------------------
+
+    @Test
+    public void testRevertToState_refreshesLegalMoveLists(){
+        setUpWhiteToMove();
+        board.putPiece(new Pusher(Player.WHITE), 3, 3); //D4
+        board.putPiece(new Pusher(Player.WHITE), 4, 4); //E5: a friendly blocker
+        board.updateAllLegaLMoves();
+
+        GameStep snapshot = board.createMemento();
+        board.movePiece(4, 4, 5, 5); //the blocker moves away
+        board.revertToState(snapshot); //... and must be back on E5
+
+        assertNotNull("the blocker must be restored on E5", board.getPiece(4, 4));
+        Piece pusher = board.getPiece(3, 3);
+        assertNotNull(pusher);
+        for (Move m : pusher.getLegalMovesQuick()) {
+            assertFalse("E5 holds a friendly piece after the revert: it must not be a cached legal destination of D4",
+                    m.getDestination() == board.getSquare(4, 4));
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Symptom guard (found by T2): with the seed below, the search used to hit the
+    // nested-capture corruption above (a lost Black Pushee), crash mid-search, and
+    // leave the singleton board in a wrong state (missing piece, stale lists) that
+    // poisoned the client's next move. A search must leave the board exactly as it
+    // found it, whether it completes or aborts on the time limit.
+    // ---------------------------------------------------------------------------------
+
+    @Test
+    public void testSearchLeavesBoardUntouched(){
+        setUpWhiteToMove();
+        board.putPiece(new Pusher(Player.WHITE), 3, 3);
+        board.putPiece(new Pusher(Player.WHITE), 3, 5);
+        board.putPiece(new Pushee(Player.WHITE), 2, 4);
+        board.putPiece(new Pusher(Player.BLACK), 7, 3);
+        board.putPiece(new Pusher(Player.BLACK), 7, 5);
+        board.putPiece(new Pushee(Player.BLACK), 6, 4);
+        board.updateAllLegaLMoves();
+
+        GameTree seeded = new GameTree(Player.WHITE, Player.BLACK, 4950, 1L);
+        seeded.getBestMoveQuick();
+
+        assertEquals("the search lost a piece", 6, board.getNumberOfPieces());
+        Piece pushee = board.getPiece(6, 4);
+        assertNotNull("the Black Pushee on E7 vanished during the search", pushee);
+        assertEquals(Player.BLACK, pushee.getOwner());
+        assertEquals(0, board.getTurnNumber());
+        assertEquals(Player.WHITE, board.getCurrentPlayer());
     }
 }

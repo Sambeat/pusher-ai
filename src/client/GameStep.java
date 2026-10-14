@@ -2,7 +2,7 @@ package client;
 
 import game.*;
 
-import java.util.HashMap;
+import java.util.LinkedList;
 
 /**
  * Represent a snapshot of the GameBoard
@@ -12,13 +12,13 @@ import java.util.HashMap;
 public class GameStep{
 
     Piece[] boardPieces;
-    HashMap<Move, Piece> hashMap;
+    LinkedList<Piece> killLog;
     Player turnPlayer;
     int turnNumber;
 
-    public GameStep(BoardSquare[] boardSquares, Player turnPlayer, HashMap<Move, Piece> hashMap, int turnNumber) {
+    public GameStep(BoardSquare[] boardSquares, Player turnPlayer, LinkedList<Piece> killLog, int turnNumber) {
         this.turnPlayer = turnPlayer;
-        this.hashMap = (HashMap<Move, Piece>) hashMap.clone();
+        this.killLog = new LinkedList<>(killLog);
         this.turnNumber = turnNumber;
         boardPieces = new Piece[GameBoard.GAME_BOARD_LENGTH * GameBoard.GAME_BOARD_LENGTH];
 
@@ -48,6 +48,6 @@ public class GameStep{
 
     public int getTurnNumber(){ return turnNumber; }
 
-    public HashMap<Move, Piece> getHashMap() { return hashMap; }
+    public LinkedList<Piece> getKillLog() { return killLog; }
 
 }

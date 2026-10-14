@@ -3,6 +3,8 @@ package client;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Random;
@@ -32,95 +34,111 @@ public class PusherApplication {
 	static GameTree gameTree;
 
 	public static void main(String[] args) {
-		Socket MyClient;
-		BufferedInputStream input;
-		BufferedOutputStream output;
-
 		try {
 			System.out.println("Creating socket to localhost:8888");
-			MyClient = new Socket("localhost", 8888);
-			input = new BufferedInputStream(MyClient.getInputStream());
-			output = new BufferedOutputStream(MyClient.getOutputStream());
+			Socket myClient = new Socket("localhost", 8888);
 			System.out.println("Got socket with Streams");
-
-			while (true) {
-
-				int incoming = input.read();
-				if (incoming == -1) {
-					//The server closed the connection: a raw -1 cast to char
-					//used to match no case and spin the loop forever.
-					System.out.println("Server closed the connection.");
-					break;
-				}
-				char cmd = (char) incoming;
-
-				try {
-					switch (cmd) {
-					case '1':
-						//A fresh game: clear whatever the previous game left on
-						//the board (leftover pieces, turn player, turn number,
-						//killed piece map) and any stale move from the old game.
-						board.reset();
-						move = null;
-						createInitialBoard(input);
-						gameTree = new GameTree(Player.WHITE, Player.BLACK);
-						board.updateAllLegaLMoves();
-
-						move = gameTree.getBestMoveQuick();
-						communicateMove(output, move);
-						break;
-					case '2':
-						board.reset();
-						move = null;
-						createInitialBoard(input);
-						gameTree = new GameTree(Player.BLACK, Player.WHITE);
-						board.updateAllLegaLMoves();
-						break;
-					case '3':
-						if (move != null)
-							board.movePiece(move);
-						move = null;
-
-						byte[] aBuffer = new byte[16];
-
-						int size = input.available();
-						if (size > 0) {
-							input.read(aBuffer, 0, size);
-						}
-
-						String s = new String(aBuffer).trim();
-
-						Move opponentMove = parseMove(s);
-						if (opponentMove == null) {
-							//The board would be out of sync with the server from
-							//here on: report it and wait for the next command
-							//instead of corrupting the board state.
-							System.out.println("Could not parse opponent move: [" + s + "]");
-							break;
-						}
-
-						board.movePiece(opponentMove);
-
-						move = gameTree.getBestMoveQuick();
-						communicateMove(output, move);
-						board.updateAllLegaLMoves();
-						break;
-					case '4':
-						ArrayList<Move> legalMoves = board.getAllLegalMovesQuick();
-						move = legalMoves.isEmpty() ? null : getRandomMove(legalMoves);
-						communicateMove(output, move);
-						break;
-					}
-				} catch (Exception e) {
-					//One bad command must not kill the client: the original code
-					//let every non-IOException (NPE on a null move,
-					//StringIndexOutOfBounds on a short move string, ...) crash
-					//the process and drop the connection.
-					e.printStackTrace();
-				}
-			}
+			run(new BufferedInputStream(myClient.getInputStream()),
+				new BufferedOutputStream(myClient.getOutputStream()));
 		} catch (IOException e) {
 			e.printStackTrace();
+		}
+	}
+
+	/**
+	 * The command loop of the Pusher client, factored out of
+	 * {@link #main(String[])} (T2) so tests can drive the app with in-memory
+	 * streams or the mock server instead of a real socket on port 8888.
+	 * main() only does the socket setup and hands the buffered streams over.
+	 *
+	 * @param in  Stream from the server (command bytes + payloads).
+	 * @param out Stream to the server (the chosen moves).
+	 * @throws IOException If reading from the server fails. The loop exits
+	 *                     normally when the server closes the connection.
+	 */
+	public static void run(InputStream in, OutputStream out) throws IOException {
+		//main() already hands over buffered socket streams; wrapping them again
+		//would only add a redundant buffering layer.
+		BufferedInputStream input = (in instanceof BufferedInputStream)
+				? (BufferedInputStream) in : new BufferedInputStream(in);
+		BufferedOutputStream output = (out instanceof BufferedOutputStream)
+				? (BufferedOutputStream) out : new BufferedOutputStream(out);
+
+		while (true) {
+
+			int incoming = input.read();
+			if (incoming == -1) {
+				//The server closed the connection: a raw -1 cast to char
+				//used to match no case and spin the loop forever.
+				System.out.println("Server closed the connection.");
+				break;
+			}
+			char cmd = (char) incoming;
+
+			try {
+				switch (cmd) {
+				case '1':
+					//A fresh game: clear whatever the previous game left on
+					//the board (leftover pieces, turn player, turn number,
+					//capture log) and any stale move from the old game.
+					board.reset();
+					move = null;
+					createInitialBoard(input);
+					gameTree = new GameTree(Player.WHITE, Player.BLACK);
+					board.updateAllLegaLMoves();
+
+					move = gameTree.getBestMoveQuick();
+					communicateMove(output, move);
+					break;
+				case '2':
+					board.reset();
+					move = null;
+					createInitialBoard(input);
+					gameTree = new GameTree(Player.BLACK, Player.WHITE);
+					board.updateAllLegaLMoves();
+					break;
+				case '3':
+					if (move != null)
+						board.movePiece(move);
+					move = null;
+
+					byte[] aBuffer = new byte[16];
+
+					int size = input.available();
+					if (size > 0) {
+						input.read(aBuffer, 0, size);
+					}
+
+					String s = new String(aBuffer).trim();
+
+					Move opponentMove = parseMove(s);
+					if (opponentMove == null) {
+						//The board would be out of sync with the server from
+						//here on: report it and wait for the next command
+						//instead of corrupting the board state.
+						System.out.println("Could not parse opponent move: [" + s + "]");
+						break;
+					}
+
+					board.movePiece(opponentMove);
+
+					move = gameTree.getBestMoveQuick();
+					communicateMove(output, move);
+					board.updateAllLegaLMoves();
+					break;
+				case '4':
+					ArrayList<Move> legalMoves = board.getAllLegalMovesQuick();
+					move = legalMoves.isEmpty() ? null : getRandomMove(legalMoves);
+					communicateMove(output, move);
+					break;
+				}
+			} catch (Exception e) {
+				//One bad command must not kill the client: the original code
+				//let every non-IOException (NPE on a null move,
+				//StringIndexOutOfBounds on a short move string, ...) crash
+				//the process and drop the connection.
+				e.printStackTrace();
+			}
 		}
 	}
 
