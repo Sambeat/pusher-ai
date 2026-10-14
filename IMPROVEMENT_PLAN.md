@@ -55,12 +55,13 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 (if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
 ./build.sh test
-# Expected: OK (92 tests). GameTreeTest takes ~5 s (real time-limited searches);
+# Expected: OK (99 tests). GameTreeTest takes ~5 s (real time-limited searches);
 # PusherApplicationTest drives full-budget searches (a few seconds).
 # (Count history: 42 at T1, +20 from T5's RulesContractTest, +2 from T7's
 # BenchTest, +3 from T3's QuiescenceTest, +14 from T4's ThreatEvalTest,
 # +7 from T2: 4 PusherApplicationTest + 3 BugProofTest regression tests,
-# +4 from T8: 3 EvalSymmetryTest + 1 ThreatEvalTest mirror test.)
+# +4 from T8: 3 EvalSymmetryTest + 1 ThreatEvalTest mirror test,
+# +7 from T6's TranspositionTableTest.)
 ```
 JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
 sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
@@ -559,6 +560,51 @@ cutoffs). **Recommended after T3** (ordering helps the q-search too).
   If depth does not improve after a careful pass, the task is considered
   done-with-findings (report hit-rate and move-ordering effect separately).
 **Estimate.** 2–3 agent-sessions.
+
+**Findings (post-T6 engine; full suite green ×2 at 99 tests, bench
+deterministic across two runs with the same seed):**
+- `--games 10 --budget 2000 --seed 42` →
+  `{"games":10,"whiteWins":5,"blackWins":5,"avgPlies":13.00,
+  "avgMaxDepth":13.00,"avgMsPerMove":~72-75}` (TT hit rate 48.5% over
+  ~7.7M probes, via the new `--tt-stats` flag) vs. the pre-T6 baseline
+  (12.00 depth, ~317 ms per move).
+- **avgMaxDepth 12 → 13 at the same budget (acceptance 3): the TT + move
+  ordering is worth a full extra level on the standard bench position, and
+  avgMsPerMove dropped ~77% (317 → ~72 ms)** — table reuse plus tighter
+  windows more than pay for the overhead, far inside the 20% wall-clock
+  bound. The starter-wins-in-13-plies pattern (the T8 null hypothesis) is
+  unchanged: same 5/5 split, same plies, same winners on both colors.
+- **The root bypasses TT score returns, by design.** The plan's literal
+  "return the stored score on a usable hit" applied to the root of a
+  repeated search on the same position replays the previous search's move
+  whenever the root ties — and testRandomnessForMoreThanOneMove's position
+  ties every root move (Black has no pieces at all, so any White move is a
+  one-ply stalemate win and the ±9000 cutoff ends every search at level
+  1), collapsing the pinned non-deterministic tie-break to the same move in
+  all 5 searches (measured: 40% flake rate on GameTreeTest). The root now
+  (a) never returns a stored score and (b) takes ordering only from
+  strictly shallower entries — this search's own earlier levels, the
+  standard iterative-deepening handoff, which never exists at level 1. The
+  root therefore stays a pure shuffle at level 1, exactly as before T6.
+  Internal nodes use the standard rules (score and ordering from entries of
+  depth ≥ current). The pinned test runs 20/20 clean after the fix (its
+  residual ~6% flake — five consecutive fair-coin ties — is inherent to the
+  test and exists on main too).
+- **The plan's flag shorthand has a sign typo, like T8's mirror formula.**
+  "score ≤ original α → UPPER / LOWER respectively" would store a min
+  node's fail-low as LOWER; it is UPPER (the returned beta bounds the true
+  value from above — a max child can never return below the window's
+  alpha, so a min node's beta only ever lands exactly on it). Implemented
+  and commented the derived-correct rules; the max-node half of the
+  shorthand was already right.
+- Implementation notes: one 1<<20 table per GameTree (scores are from that
+  tree's maxPlayer perspective, so no sign conversion is ever needed across
+  the White/Black trees); q-nodes are excluded from probe/store (their
+  values use the capture-horizon convention); the Zobrist key (257
+  fixed-seed keys) is maintained incrementally in GameBoard's
+  movePiece/undo/putPiece/reset/setCurrentPlayer and carried by GameStep
+  so revertToState restores it exactly; `--tt-stats` on the bench prints
+  the aggregate probes/hits/hit-rate line quoted above.
 
 ---
 
