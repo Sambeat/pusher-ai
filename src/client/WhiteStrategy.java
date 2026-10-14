@@ -52,6 +52,11 @@ public class WhiteStrategy implements Strategy {
         }
         score += ownMobility / 2;
 
+        // T4: threat & safety terms (ready-to-win Pushees, next-ply capture
+        // danger, contested enemy push squares). Shared with BlackStrategy
+        // via GameAnalyzer so both colors score these terms identically.
+        score += GameAnalyzer.threatTerms(board, maxPlayer);
+
         return score;
     }
 }

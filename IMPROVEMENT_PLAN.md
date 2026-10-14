@@ -52,9 +52,9 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 (if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
 ./build.sh test
-# Expected: OK (67 tests). GameTreeTest takes ~5 s (real time-limited searches).
+# Expected: OK (81 tests). GameTreeTest takes ~5 s (real time-limited searches).
 # (Count history: 42 at T1, +20 from T5's RulesContractTest, +2 from T7's
-# BenchTest, +3 from T3's QuiescenceTest.)
+# BenchTest, +3 from T3's QuiescenceTest, +14 from T4's ThreatEvalTest.)
 ```
 JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
 sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
@@ -346,6 +346,35 @@ forced starter win).
 
 **Risk.** Low (pure evaluation). Main trap: accidentally crossing the 9000
 bound — the property test above guards it. **Estimate.** 1 agent-session.
+
+**Findings (post-T4 engine; full suite green ×2 at 81 tests, bench
+deterministic across two runs with the same seed):**
+- `--games 10 --budget 2000 --seed 42` →
+  `{"games":10,"whiteWins":0,"blackWins":10,"avgPlies":15.50,
+  "avgMaxDepth":11.50,"avgMsPerMove":108-112}`
+  (vs. the post-T3 engine: 10/0 WHITE, 13.50 plies, 12.00 depth,
+  108-114 ms; sanity run on a different seed, 6 games: 0/6 white,
+  13.50 plies, 11.50 depth).
+- **The color split flipped completely: Black now wins every game (10/0 on
+  the standard seed, 0/6 on a second seed) where the post-T3 engine was
+  10/0 White.** T4's terms are color-symmetric by construction (one shared
+  GameAnalyzer helper parameterized by the player), so the flip is an
+  interaction with the remaining base-eval asymmetry (White's +2 defensive
+  premium, Black's missing mobility term — both T8's target), exactly as the
+  T3 note predicted ("T4's win-rate expectation should be read against this
+  10/0"). T8's symmetry check must re-verify both colors; the T4-vs-T3
+  strength comparison should be read on plies and behavior, not on the color
+  split.
+- avgPlies 13.50 → 15.50: the forced line is ~2 plies longer — the
+  defending side now contests hanging pieces and the ready-to-win race
+  instead of the previously forced conversion (the plan's expectation of a
+  reduced avg plies did not materialize; the forced-win structure remains,
+  with the winning side flipped).
+- avgMaxDepth 12.00 → 11.50 at the same budget and avgMsPerMove flat
+  (~108-112 vs ~108-114 ms): the tighter stand-pat values in q-nodes trip
+  the ±9000 forced-win cutoff slightly earlier; the per-leaf cost of the
+  threat computation is negligible. T6 (TT + move ordering) remains the main
+  depth lever.
 
 ---
 
