@@ -22,12 +22,15 @@ import java.util.Locale;
  * the per-move time budget.
  *
  * Usage:
- *   java -cp out client.Bench --games N --budget MS --seed S
+ *   java -cp out client.Bench --games N --budget MS --seed S [--tt-stats]
  *
  * --seed makes the move-order shuffling reproducible: two runs with the same
  * seed play the same moves, so winners, plies and max depths come out
  * identical. The millisecond fields inherently vary a little with machine
  * load, because the iterative-deepening stop condition is wall-clock based.
+ *
+ * --tt-stats (debug, T6) prints one extra line after the summary with the
+ * transposition table probe/hit totals and hit rate over all games.
  *
  * Degenerate cases are detected and reported, never fatal: a null move (a
  * side with no legal move — a loss by the stalemate rule, docs/RULES.md
@@ -61,6 +64,7 @@ public class Bench {
         int games;
         long budget;
         Long seed;
+        boolean ttStats = false;
 
         try {
             games = 10;
@@ -77,6 +81,9 @@ public class Bench {
                     case "--seed":
                         seed = parseLong(args, ++i, "--seed");
                         break;
+                    case "--tt-stats":
+                        ttStats = true;
+                        break;
                     default:
                         throw new IllegalArgumentException(
                                 "unknown argument: " + args[i]);
@@ -88,23 +95,33 @@ public class Bench {
             return null;
         }
 
+        // T6 debug hook: [probes, hits] accumulated over all games.
+        long[] tt = new long[2];
+
         List<GameResult> results = new ArrayList<>(games);
         for (int i = 0; i < games; i++) {
             // Alternate who starts so neither color is favored by move order.
             Player starter = (i % 2 == 0) ? Player.WHITE : Player.BLACK;
-            GameResult result = playGame(i, starter, budget, seed);
+            GameResult result = playGame(i, starter, budget, seed, tt);
             results.add(result);
             System.out.println(describe(result));
         }
 
         Summary summary = new Summary(results);
         System.out.println(summary.toJsonLine());
+
+        if (ttStats)
+            System.out.println(String.format(Locale.ROOT,
+                    "ttStats={\"probes\":%d,\"hits\":%d,\"hitRate\":%.4f}",
+                    tt[0], tt[1],
+                    tt[0] == 0 ? 0.0 : (double) tt[1] / tt[0]));
+
         return summary;
     }
 
     private static void usage() {
         System.err.println(
-                "Usage: java -cp out client.Bench --games N --budget MS --seed S");
+                "Usage: java -cp out client.Bench --games N --budget MS --seed S [--tt-stats]");
     }
 
     private static int parsePositiveInt(String[] args, int i, String name) {
@@ -141,7 +158,7 @@ public class Bench {
      *             non-deterministic play.
      */
     private static GameResult playGame(int index, Player starter,
-                                       long budget, Long seed) {
+                                       long budget, Long seed, long[] tt) {
         GameBoard board = GameBoard.getInstance();
         board.reset();
         setDefaultBenchBoard(board);
@@ -179,6 +196,10 @@ public class Bench {
             plies++;
             winner = board.winner();
         }
+
+        // T6 debug hook: accumulate this game's transposition table traffic.
+        tt[0] += whiteTree.getTTProbes() + blackTree.getTTProbes();
+        tt[1] += whiteTree.getTTHits() + blackTree.getTTHits();
 
         return new GameResult(index, starter, winner, plies, elapsedMs,
                 maxDepth, stalemated, winner == null);

@@ -1,6 +1,7 @@
 package game;
 
 import client.GameStep;
+import client.TranspositionTable;
 
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -58,6 +59,21 @@ public class GameBoard {
     private int turnNumber;
 
     /**
+     * T6: the Zobrist key of the current position (all pieces on the board
+     * plus the side to move). Base value 0 = empty board, WHITE to move.
+     * Maintained incrementally by movePiece()/undo()/putPiece()/reset()/
+     * setCurrentPlayer() and restored wholesale by revertToState() (which
+     * replaces the board at once). Read by the transposition table
+     * (client.TranspositionTable) through GameTree.
+     */
+    private long zobristHash;
+
+    /** The Zobrist key of the current position (T6). */
+    public long getZobristHash(){
+        return zobristHash;
+    }
+
+    /**
      * Singleton pattern implementation.
      * @return The GameBoard singleton instance.
      */
@@ -93,7 +109,8 @@ public class GameBoard {
      * @return A GameStep object encapsulating the current State.
      */
     public GameStep createMemento(){
-        return new GameStep(board, turnPlayer, killedPieceLog, turnNumber);
+        return new GameStep(board, turnPlayer, killedPieceLog, turnNumber,
+                zobristHash);
     }
 
     /**
@@ -111,6 +128,10 @@ public class GameBoard {
         //limit applies some moves without undoing them, which used to leak into
         //the permanent turn count.
         turnNumber = state.getTurnNumber();
+        //T6: the key is part of the state too (see GameStep.zobristHash):
+        //the placement below is row by row and cannot be derived from the
+        //incremental movePiece/undo updates.
+        zobristHash = state.getZobristHash();
         pieceList = new ArrayList<>();
         Piece[] piecesToPlace = state.getBoardState();
 
@@ -198,6 +219,12 @@ public class GameBoard {
 
         board[to1D(i, j)].setPiece(toPut);
         pieceList.add(toPut);
+
+        //T6: keep the key in sync — setups (tests, the app parsing a board)
+        //place pieces with putPiece without any movePiece/undo pair.
+        if (pieceToKill != null)
+            zobristHash ^= TranspositionTable.pieceKey(i, j, pieceToKill);
+        zobristHash ^= TranspositionTable.pieceKey(i, j, toPut);
     }
 
     /**
@@ -266,7 +293,10 @@ public class GameBoard {
     }
 
     public void setCurrentPlayer(Player player){
-        this.turnPlayer = player;
+        if (player != turnPlayer)
+            //T6: the side to move is part of the position key.
+            zobristHash ^= TranspositionTable.sideToMoveKey();
+        turnPlayer = player;
     }
 
     /**
@@ -293,6 +323,8 @@ public class GameBoard {
         turnPlayer = Player.WHITE;
         killedPieceLog = new LinkedList<>();
         pieceList = new ArrayList<>();
+        //T6: empty board, WHITE to move = the key's base value.
+        zobristHash = 0;
     }
 
     @Override
@@ -443,6 +475,14 @@ public class GameBoard {
         destination.setPiece(origin.getPiece());
         origin.emptySquare();
 
+        //T6: the Zobrist delta of this move. undo() applies the exact same
+        //delta — XOR is its own inverse.
+        zobristHash ^= TranspositionTable.pieceKey(origin.getRow(), origin.getColumn(), movingPiece)
+                    ^ TranspositionTable.pieceKey(destination.getRow(), destination.getColumn(), movingPiece);
+        if (toKill != null)
+            zobristHash ^= TranspositionTable.pieceKey(destination.getRow(), destination.getColumn(), toKill);
+        zobristHash ^= TranspositionTable.sideToMoveKey();
+
         updateSurroundingPieces(origin, destination);
 
         turnPlayer = turnPlayer.other();
@@ -456,6 +496,15 @@ public class GameBoard {
      * @param move The move to reverse
      */
     public void undo(Move move){
+        Piece movingPiece = move.getDestination().getPiece();
+
+        //T6: the exact same Zobrist delta as movePiece (XOR is its own
+        //inverse). The captured piece's key is applied by putPiece() below,
+        //which keeps the key in sync for every call site.
+        zobristHash ^= TranspositionTable.pieceKey(move.getPieceLocation().getRow(), move.getPieceLocation().getColumn(), movingPiece)
+                    ^ TranspositionTable.pieceKey(move.getDestination().getRow(), move.getDestination().getColumn(), movingPiece)
+                    ^ TranspositionTable.sideToMoveKey();
+
         movePieceLite(move.getDestination(), move.getPieceLocation());
 
         //Remove 2 turns because the previous movePiece() call incremented the

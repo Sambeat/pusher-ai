@@ -66,9 +66,17 @@ public class GameTree {
     // (unless a seed was given, see the constructor below).
     private Random random;
 
+    /**
+     * T6: the transposition table, or null when the constructor disabled
+     * it (the determinism check searches the same positions with the TT
+     * on and off). One table per GameTree: its scores are from this
+     * tree's maxPlayer perspective, so no sign conversion is ever needed.
+     */
+    private TranspositionTable tt;
+
 
     public GameTree(Player maxPlayer, Player minPlayer){
-        this(maxPlayer, minPlayer, MAX_TIME_MILLIS, null, true);
+        this(maxPlayer, minPlayer, MAX_TIME_MILLIS, null, true, true);
     }
 
     /**
@@ -83,16 +91,28 @@ public class GameTree {
      *             non-deterministic play.
      */
     public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis, Long seed){
-        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false);
+        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false, true);
+    }
+
+    /**
+     * T6: like the 4-argument constructor, with the transposition table
+     * explicitly enabled or disabled (the determinism check needs the
+     * same search with the TT off).
+     */
+    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
+                    Long seed, boolean transpositionEnabled){
+        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
+                transpositionEnabled);
     }
 
     private GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
-                     Long randomSeed, boolean verbose){
+                     Long randomSeed, boolean verbose, boolean transpositionEnabled){
         this.maxPlayer = maxPlayer;
         this.minPlayer = minPlayer;
         this.timeBudgetMillis = timeBudgetMillis;
         this.randomSeed = randomSeed;
         this.verbose = verbose;
+        this.tt = transpositionEnabled ? new TranspositionTable() : null;
 
         switch (maxPlayer){
             case WHITE:
@@ -123,6 +143,18 @@ public class GameTree {
      */
     public int getLastCompletedLevel(){
         return lastCompletedLevel;
+    }
+
+    /**
+     * T6 bench hook: transposition table probes/hits since construction
+     * (both 0 when the table was disabled).
+     */
+    public long getTTProbes(){
+        return tt == null ? 0 : tt.probes();
+    }
+
+    public long getTTHits(){
+        return tt == null ? 0 : tt.hits();
     }
 
 
@@ -207,24 +239,61 @@ public class GameTree {
      * @return An Object[] with the first element being the score and the second
      * element being the best Move.
      */
+    /** Root entry point of the search (T6: see the isRoot handling in the
+     *  6-argument overload for the root's transposition-table semantics). */
     private Object[] alphaBeta(int depth, Player player, int alpha, int beta) throws Exception {
-        return alphaBeta(depth, player, alpha, beta, 0);
+        return alphaBeta(depth, player, alpha, beta, 0, true);
+    }
+
+    /** Internal-node entry point (recursions, including quiescence's). */
+    private Object[] alphaBeta(int depth, Player player, int alpha, int beta,
+                               int qDepth) throws Exception {
+        return alphaBeta(depth, player, alpha, beta, qDepth, false);
     }
 
     private Object[] alphaBeta(int depth, Player player, int alpha, int beta,
-                               int qDepth) throws Exception {
+                               int qDepth, boolean isRoot) throws Exception {
         if (System.currentTimeMillis() - start > timeBudgetMillis){
             throw new Exception("Exceeded time");
         }
 
+        long positionHash = board.getZobristHash();
+        int turn = board.getTurnNumber();
+
+        // T6: transposition table lookup. Main search only (depth > 0):
+        // q-node values use the capture-horizon convention and are never
+        // stored or reused.
+        TranspositionTable.Entry ttEntry = null;
+        if (tt != null && depth > 0)
+            ttEntry = tt.probe(positionHash, turn);
+
+        // Internal nodes: the stored score is returned when the entry was
+        // searched at least as deep as now AND its flag is compatible with
+        // the window (see TranspositionTable.usable). The root NEVER returns
+        // a stored score: its result is the move that will be played, and it
+        // must come from a fresh search — an entry left by a previous search
+        // on the same position would replay that search's move, determinizing
+        // root tie-breaks that the shuffle is pinned to keep random (see
+        // testRandomnessForMoreThanOneMove, whose position ties every move
+        // at the root).
+        if (!isRoot
+                && ttEntry != null
+                && ttEntry.depth >= depth
+                && TranspositionTable.usable(ttEntry, alpha, beta))
+            return new Object[]{ttEntry.score, ttEntry.bestMove};
+
         Player winner = board.winner();
 
-        if (winner == maxPlayer) {
-            return new Object[]{Integer.MAX_VALUE - board.getTurnNumber(), null};
-        }
-
-        if (winner == minPlayer) {
-            return new Object[]{Integer.MIN_VALUE + board.getTurnNumber(), null};
+        if (winner != null) {
+            //T6: terminal scores are stored like any other (EXACT: they do
+            //not depend on depth, the turn number keeps them exact).
+            int score = winner == maxPlayer
+                    ? Integer.MAX_VALUE - turn
+                    : Integer.MIN_VALUE + turn;
+            if (tt != null && depth > 0)
+                tt.store(positionHash, turn, depth, score,
+                        TranspositionTable.Flag.EXACT, null);
+            return new Object[]{score, null};
         }
 
         ArrayList<Move> legalMoves = new ArrayList<>(board.getAllLegalMovesQuick());
@@ -236,9 +305,13 @@ public class GameTree {
             //The margin keeps this terminal strictly below (above) the goal
             //row terminal at the same depth, so the AI prefers the actual
             //objective to stalemating the opponent.
-            return new Object[]{player == maxPlayer
-                    ? Integer.MIN_VALUE + board.getTurnNumber() + STALEMATE_MARGIN
-                    : Integer.MAX_VALUE - board.getTurnNumber() - STALEMATE_MARGIN, null};
+            int score = player == maxPlayer
+                    ? Integer.MIN_VALUE + turn + STALEMATE_MARGIN
+                    : Integer.MAX_VALUE - turn - STALEMATE_MARGIN;
+            if (tt != null && depth > 0)
+                tt.store(positionHash, turn, depth, score,
+                        TranspositionTable.Flag.EXACT, null);
+            return new Object[]{score, null};
         }
 
         if (depth == 0){
@@ -250,7 +323,38 @@ public class GameTree {
         int score;
         Move bestMove = null;
 
-        Collections.shuffle(legalMoves, random);
+        // T6: move ordering — the TT's best move first (if still legal),
+        // then captures in MVV-LVA order, then the rest in the existing
+        // shuffled order (the shuffle stays: non-deterministic tie-breaks
+        // are pinned behavior, see testRandomnessForMoreThanOneMove).
+        //
+        // Which entry's best move is trusted for ordering:
+        //  - internal nodes: an entry searched at least as deep as the
+        //    current one (same depth from an earlier iteration, or deeper
+        //    from another line — both are proven at this depth);
+        //  - the root: ONLY a strictly shallower entry, i.e. this search's
+        //    own earlier iterative-deepening level (the standard best-move
+        //    handoff). A same-depth-or-deeper entry at the root can only
+        //    come from a previous search on the same position; preferring
+        //    its winner would make root ties sticky across searches (a tied
+        //    move can never overtake one searched first), determinizing the
+        //    tie-break the shuffle must keep random. Level 1 of every search
+        //    has no shallower entry, so it is always a pure shuffle.
+        //
+        // The list is ordered for depth-0 callers too: the q-search iterates
+        // the same list, filtered to captures, so the ordering helps the
+        // q-search as well.
+        Move ttOrderMove;
+        if (isRoot)
+            ttOrderMove = (ttEntry != null && ttEntry.depth < depth)
+                    ? ttEntry.bestMove : null;
+        else
+            ttOrderMove = (ttEntry != null && ttEntry.depth >= depth)
+                    ? ttEntry.bestMove : null;
+        orderMoves(legalMoves, ttOrderMove, player);
+
+        int originalAlpha = alpha;
+        int originalBeta = beta;
 
         for (Move move : legalMoves){
 
@@ -258,7 +362,7 @@ public class GameTree {
 
             //Update score with alpha/beta pruning
             if (player == maxPlayer) {
-                score = (Integer) alphaBeta(depth - 1, minPlayer, alpha, beta)[0];
+                score = (Integer) alphaBeta(depth - 1, minPlayer, alpha, beta, 0)[0];
 
                 if (score > alpha) {
                     alpha = score;
@@ -266,7 +370,7 @@ public class GameTree {
                 }
 
             } else {
-                score = (Integer) alphaBeta(depth - 1, maxPlayer, alpha, beta)[0];
+                score = (Integer) alphaBeta(depth - 1, maxPlayer, alpha, beta, 0)[0];
 
                 if (score < beta) {
                     beta = score;
@@ -282,11 +386,86 @@ public class GameTree {
             }
         }
 
-        return new Object[]{
-                player == maxPlayer ?
-                        new Integer(alpha) : new Integer(beta),
-                bestMove};
+        int nodeScore = (player == maxPlayer) ? alpha : beta;
 
+        // T6: store with the standard bound flags. A max node fails high
+        // (score = alpha >= beta: the value is at least beta, LOWER) or
+        // fails low (score = alpha never beat the original alpha: every
+        // child's true value is at most the original alpha, so the value is
+        // at most the score, UPPER); a min node is the mirror — it fails
+        // low when beta dropped to the original alpha (some child's true
+        // value is at most that: UPPER) and fails high when beta never
+        // improved (every child's true value is at least the original beta:
+        // LOWER). In between, the full window was searched: EXACT.
+        //
+        // Note: the plan's shorthand for these rules ("score <= original
+        // alpha -> UPPER / LOWER respectively") has a sign typo, like T8's
+        // mirror formula: a min node's fail-low stores UPPER, not LOWER —
+        // its returned beta bounds the true value from above.
+        if (tt != null){
+            TranspositionTable.Flag flag;
+            if (player == maxPlayer){
+                if (nodeScore >= originalBeta)
+                    flag = TranspositionTable.Flag.LOWER;
+                else if (nodeScore <= originalAlpha)
+                    flag = TranspositionTable.Flag.UPPER;
+                else
+                    flag = TranspositionTable.Flag.EXACT;
+            } else {
+                if (nodeScore <= originalAlpha)
+                    flag = TranspositionTable.Flag.UPPER;
+                else if (nodeScore >= originalBeta)
+                    flag = TranspositionTable.Flag.LOWER;
+                else
+                    flag = TranspositionTable.Flag.EXACT;
+            }
+            tt.store(positionHash, turn, depth, nodeScore, flag, bestMove);
+        }
+
+        return new Object[]{nodeScore, bestMove};
+    }
+
+    /**
+     * T6: in-place move ordering: the TT's best move first (if it is still
+     * in the list), then captures in MVV-LVA order (most valuable victim
+     * over least valuable attacker, descending), then the remaining moves
+     * in the existing shuffled order. The shuffle is preserved —
+     * non-deterministic tie-breaking is pinned behavior.
+     */
+    private void orderMoves(ArrayList<Move> moves, Move ttBestMove, Player player){
+        if (moves.size() <= 1)
+            return;
+
+        Move first = null;
+        ArrayList<Move> captures = new ArrayList<>();
+        ArrayList<Move> rest = new ArrayList<>(moves.size());
+
+        for (Move move : moves){
+            if (first == null && ttBestMove != null && move.equals(ttBestMove))
+                first = move;
+            else if (isCapture(move, player))
+                captures.add(move);
+            else
+                rest.add(move);
+        }
+
+        // MVV-LVA: victim value / own value, descending. Cross-multiplying
+        // keeps this integer-exact (the values are 3 and 7).
+        captures.sort((a, b) -> {
+            int victimA = a.getDestination().getPiece().getScoreValue();
+            int ownA = a.getPieceLocation().getPiece().getScoreValue();
+            int victimB = b.getDestination().getPiece().getScoreValue();
+            int ownB = b.getPieceLocation().getPiece().getScoreValue();
+            return Integer.compare(victimB * ownA, victimA * ownB);
+        });
+
+        Collections.shuffle(rest, random);
+
+        moves.clear();
+        if (first != null)
+            moves.add(first);
+        moves.addAll(captures);
+        moves.addAll(rest);
     }
 
     /**
