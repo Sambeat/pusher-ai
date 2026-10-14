@@ -52,9 +52,9 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 (if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
 ./build.sh test
-# Expected: OK (64 tests). GameTreeTest takes ~5 s (real time-limited searches).
+# Expected: OK (67 tests). GameTreeTest takes ~5 s (real time-limited searches).
 # (Count history: 42 at T1, +20 from T5's RulesContractTest, +2 from T7's
-# BenchTest.)
+# BenchTest, +3 from T3's QuiescenceTest.)
 ```
 JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
 sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
@@ -64,7 +64,7 @@ sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
 2. Write the failing test(s) from the acceptance criteria first.
 3. Implement. Do not touch anything outside the listed files unless the
    acceptance criteria require it.
-4. Full suite green (64 + your new tests), run twice (two tests are
+4. Full suite green (67 + your new tests), run twice (two tests are
    shuffle-sensitive: run `tests.GameTreeTest` a second time).
 5. Commit with a message starting `T<n>:`. Push. Open a PR against `main`.
 
@@ -273,6 +273,26 @@ before an opponent's capture.
 **Verification.** T7 bench (landed — see T7 findings): avg max depth
 and/or win rate vs. the recorded baseline; at minimum the suite + the two
 tactical tests.
+
+**Findings (recorded in PR #4, post-T3 engine; full suite green ×2 at
+67 tests, bench deterministic across two runs):**
+- `--games 10 --budget 2000 --seed 42` →
+  `{"games":10,"whiteWins":10,"blackWins":0,"avgPlies":13.50,
+  "avgMaxDepth":12.00,"avgMsPerMove":108-114}`
+  (vs. baseline 5/5, 13.00 plies, 13.00 depth, 145.36 ms).
+- **The starter-wins-every-game pattern is broken.** In the five games
+  Black starts, White now wins: the second side defends the 13-ply
+  closing sequence by seeing horizon captures — exactly the line T7
+  flagged for T3. Caveat for T4/T8: the 10/0 color split may partly
+  reflect the known White/Black evaluation asymmetry (White's +2
+  defensive premium, see T8), not only the strength gain — T8's
+  symmetry check should re-verify both colors, and T4's win-rate
+  expectation should be read against this 10/0, not the old 5/5.
+- avgMsPerMove dropped ~25% (145.36 → ~108–114 ms): q-node stand-pat
+  tightens α/β, so the ±9000 forced-win cutoff fires earlier.
+- avgMaxDepth 13 → 12 at the same budget: most moves still terminate on
+  the forced-win cutoff before the budget is spent, so T6's depth
+  gains remain the main lever (consistent with the T7 note).
 
 **Risk.** Medium (perf; q-explosion is bounded by the 8-ply cap and the fact
 that captures are rare in this game — average capture branching ≈ 1–2).
