@@ -34,15 +34,56 @@ public class GameTree {
     //Starting time of tree generation
     private long start;
 
+    // Per-move time budget for the iterative deepening search.
+    private long timeBudgetMillis = MAX_TIME_MILLIS;
+
+    // Non-null when the move-order shuffling must be reproducible (T7 bench).
+    // Each search gets a Random derived from this seed plus the search count,
+    // so consecutive searches still shuffle differently while a whole run
+    // stays replayable with the same seed.
+    private Long randomSeed;
+    private long searchCount;
+
+    // Legacy per-level logging (silenced by the bench constructor).
+    private boolean verbose = true;
+
+    // Deepest level fully completed by the last getBestMoveQuick() call
+    // (0 when even level 1 did not finish).
+    private int lastCompletedLevel;
+
     // Used to randomize the move order on each search (tie-breaking and
     // move ordering). A fresh sequence is created for every getBestMoveQuick()
-    // call so repeated searches on the same position are not deterministic.
+    // call so repeated searches on the same position are not deterministic
+    // (unless a seed was given, see the constructor below).
     private Random random;
 
 
     public GameTree(Player maxPlayer, Player minPlayer){
+        this(maxPlayer, minPlayer, MAX_TIME_MILLIS, null, true);
+    }
+
+    /**
+     * Construct a tree with an explicit per-move time budget and an optional
+     * seed that makes the move-order shuffling reproducible (T7 bench).
+     * A null seed keeps the legacy non-deterministic behavior. This
+     * constructor silences the per-level logging of the default one.
+     * @param maxPlayer The player the search maximizes for.
+     * @param minPlayer The player the search minimizes for.
+     * @param timeBudgetMillis The per-move search budget in milliseconds.
+     * @param seed Seed for the move-order shuffling, or null for
+     *             non-deterministic play.
+     */
+    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis, Long seed){
+        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false);
+    }
+
+    private GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
+                     Long randomSeed, boolean verbose){
         this.maxPlayer = maxPlayer;
         this.minPlayer = minPlayer;
+        this.timeBudgetMillis = timeBudgetMillis;
+        this.randomSeed = randomSeed;
+        this.verbose = verbose;
 
         switch (maxPlayer){
             case WHITE:
@@ -55,6 +96,26 @@ public class GameTree {
 
     }
 
+    /**
+     * Fresh Random for a new search: unseeded in legacy mode, otherwise
+     * derived from the seed and the search count. The golden-ratio constant
+     * mixes consecutive counters so successive searches decorrelate.
+     */
+    private Random nextRandom(){
+        if (randomSeed == null)
+            return new Random();
+        return new Random(randomSeed + 0x9E3779B97F4A7C15L * searchCount++);
+    }
+
+    /**
+     * The deepest search level fully completed by the last
+     * getBestMoveQuick() call. 0 when the first level did not complete.
+     * Read by the T7 bench to report the max depth reached per move.
+     */
+    public int getLastCompletedLevel(){
+        return lastCompletedLevel;
+    }
+
 
 
     /**
@@ -65,16 +126,19 @@ public class GameTree {
      */
     public Move getBestMoveQuick(){
         start = System.currentTimeMillis();
-        random = new Random();
+        random = nextRandom();
         int level = 1;
+        lastCompletedLevel = 0;
         GameStep snapshot = board.createMemento();
 
         Object[] moveInfo = null;
 
         do {
             try {
-                moveInfo = alphaBeta(level++, maxPlayer, Integer.MIN_VALUE,
+                moveInfo = alphaBeta(level, maxPlayer, Integer.MIN_VALUE,
                         Integer.MAX_VALUE);
+                lastCompletedLevel = level;
+                level++;
             } catch (Exception e){
                 //When minmax can't complete in time, it will leave the board
                 //in a messed up state. We do a revert to its initial state then.
@@ -85,9 +149,10 @@ public class GameTree {
             if ( (int)moveInfo[0] > 9000 || (int) moveInfo[0] < -9000)
                 break;
 
-            System.out.println(moveInfo[1] + ":" + moveInfo[0]);
+            if (verbose)
+                System.out.println(moveInfo[1] + ":" + moveInfo[0]);
         }
-        while (System.currentTimeMillis() - start <= MAX_TIME_MILLIS);
+        while (System.currentTimeMillis() - start <= timeBudgetMillis);
 
         return moveInfo == null ? null : (Move)moveInfo[1];
     }
@@ -99,9 +164,11 @@ public class GameTree {
      */
     public Move getBestMoveQuick(int depth){
         start = System.currentTimeMillis();
-        random = new Random();
+        random = nextRandom();
         try {
-            return (Move) alphaBeta(depth, maxPlayer, Integer.MIN_VALUE, Integer.MAX_VALUE)[1];
+            Object[] result = alphaBeta(depth, maxPlayer, Integer.MIN_VALUE, Integer.MAX_VALUE);
+            lastCompletedLevel = depth;
+            return (Move) result[1];
         } catch (Exception e){
             return null;
         }
@@ -132,7 +199,7 @@ public class GameTree {
      * element being the best Move.
      */
     private Object[] alphaBeta(int depth, Player player, int alpha, int beta) throws Exception {
-        if (System.currentTimeMillis() - start > MAX_TIME_MILLIS){
+        if (System.currentTimeMillis() - start > timeBudgetMillis){
             throw new Exception("Exceeded time");
         }
 
