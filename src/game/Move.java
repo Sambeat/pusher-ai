@@ -40,8 +40,9 @@ public class Move {
 
     @Override
     public int hashCode(){
-        //equals() is overridden, so hashCode() must be too: killedPieceMap is a
-        //HashMap keyed by Move and only worked by luck of instance identity.
+        //equals() is overridden, so hashCode() must be too: the search's capture
+        //log (formerly a HashMap keyed by Move) and any Set/Map of moves only
+        //worked by luck of instance identity before this.
         int result = pieceLocation.hashCode();
         result = 31 * result + destination.hashCode();
         return result;

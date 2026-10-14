@@ -45,16 +45,21 @@ merged into `main`), and T6 is recommended after T3.
    keep every piece's cached legal-move list consistent (the 12-square
    `updateSurroundingPieces` set). Never assume fresh move lists in evaluation.
 4. The move/undo pair and `createMemento`/`revertToState` must remain exact —
-   the search and the timeout fallback rely on them.
+   the search and the timeout fallback rely on them. T2 landed: the capture
+   log is LIFO (a `HashMap<Move, Piece>` keyed by square pair lost victims of
+   nested same-pair captures) and `revertToState` refreshes all cached legal
+   move lists after placement; `tests.BugProofTest` pins both.
 
 ### Build & test
 T1 has landed: from the repo root, one command downloads the pinned test jars
 (if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
 ./build.sh test
-# Expected: OK (81 tests). GameTreeTest takes ~5 s (real time-limited searches).
+# Expected: OK (88 tests). GameTreeTest takes ~5 s (real time-limited searches);
+# PusherApplicationTest drives full-budget searches (a few seconds).
 # (Count history: 42 at T1, +20 from T5's RulesContractTest, +2 from T7's
-# BenchTest, +3 from T3's QuiescenceTest, +14 from T4's ThreatEvalTest.)
+# BenchTest, +3 from T3's QuiescenceTest, +14 from T4's ThreatEvalTest,
+# +7 from T2: 4 PusherApplicationTest + 3 BugProofTest regression tests.)
 ```
 JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
 sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
@@ -137,6 +142,51 @@ unchanged in behavior for a real server (socket setup code path preserved).
 **Verification.** Full suite green ×2.
 
 **Risk.** Low-medium (app refactor). **Estimate.** 1 agent-session.
+
+**Findings (recorded in PR #6; full suite green ×3 at 88 tests):**
+- **The new tests exposed two pre-existing engine bugs, both fixed and pinned
+  in `BugProofTest`** (`testNestedCaptureSameSquarePair_restoresOuterVictim`,
+  `testRevertToState_refreshesLegalMoveLists`, `testSearchLeavesBoardUntouched`):
+  1. `GameBoard.killedPieceMap` was a `HashMap<Move, Piece>` keyed by the
+     move's square pair. Two *nested* captures on the **same square pair**
+     (capture, origin re-occupied, destination re-captured, capture again)
+     shared one key: the inner capture's victim overwrote the outer's record
+     and the outer victim was never restored on undo. The piece silently
+     vanished, the board state drifted *consistently* (every list/square/
+     turnNumber invariant held), and later searches played phantom moves —
+     the client crashed with `movePiece: no piece at origin` or answered from
+     a corrupted tree. Fixed with a LIFO capture log (`movePiece` pushes the
+     victim or null, `undo` pops its own record; every undo call site is
+     strictly nested move/undo). `GameStep`'s memento carries the log copy.
+     Note: T3's quiescence (captures-only extension) makes the same-pair
+     pattern common — the bug predates T3 but T3 is what makes it trigger in
+     practice.
+  2. `revertToState()` placed snapshot pieces row by row and each placement
+     recomputed that piece's cached legal moves against a still-partially
+     restored board, leaving stale lists after a timed-out search. Fixed with
+     a full `updateAllLegaLMoves()` once the whole board is back.
+- **Bench (post-fix, replaces the pre-T2 numbers as the current baseline):**
+  `--games 10 --budget 2000 --seed 42` →
+  `{"games":10,"whiteWins":5,"blackWins":5,"avgPlies":13.00,
+  "avgMaxDepth":12.50,"avgMsPerMove":~294}`; sanity seed 7, 6 games:
+  `3/3 white, 13.00 plies, depth 12.00, ~286 ms`.
+- **The starter wins every game in exactly 13 plies again (T7's baseline
+  pattern), on every seed tried.** The T3 and T4 findings above — recorded on
+  the pre-fix engine — do not reproduce on the fixed engine: the 10/0 White
+  (post-T3) and 10/0 Black (post-T4) splits are gone (now 5/5 on the
+  standard seed). At least on the standard bench position, part or all of the
+  "strength changes" T3/T4 attributed to quiescence and threat/safety terms
+  were artifacts of searches corrupting/aborting on the capture-log bug.
+  **Read the T3/T4 Findings' color-split claims against this 5/5 baseline,
+  not each other.** T8's symmetry check and bench verification must use the
+  post-T2 numbers; expect its "within a small band" check to see ~50/50
+  (starter-wins) as the null hypothesis.
+- App layer (for T9/T10): `PusherApplication.run(InputStream, OutputStream)`
+  is the test entry point; the `'3'` handler applies the pending own move
+  **before** parsing the payload (pinned by test 4); the `'3'` payload is read
+  with `available()` into a 16-byte buffer (T9's framing work replaces this);
+  `move`/`gameTree`/`board` are static and carry over across `run()`
+  invocations — each game reset (`'1'`/`'2'`) is what clears them.
 
 ---
 
@@ -479,7 +529,11 @@ cutoffs). **Recommended after T3** (ordering helps the q-search too).
 **Goal.** Replace `input.available()` + single-`read()` with real framing, so
 split or coalesced TCP reads can't corrupt game state.
 
-**Depends on:** T2 (mock server) for testing.
+**Depends on:** T2 (mock server) for testing. T2 has landed: the server is
+`src/tests/MockPusherServer.java` (single write + one flush per command — add
+split-write support here, e.g. send 2 bytes, sleep, send the rest) and
+`PusherApplicationTest.AppSession` already drives `run()` over piped streams
+for the no-socket cases.
 
 **Scope.** `src/client/PusherApplication.java` (reader helpers); extend the
 T2 mock server to send a message split across two writes (e.g. 2 bytes,

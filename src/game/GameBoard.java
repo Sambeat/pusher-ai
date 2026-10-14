@@ -3,8 +3,7 @@ package game;
 import client.GameStep;
 
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.Random;
 
 /**
@@ -43,7 +42,18 @@ public class GameBoard {
     private BoardSquare[] board;
     private ArrayList<Piece> pieceList;
 
-    private HashMap<Move, Piece> killedPieceMap;
+    /**
+     * LIFO log of capture victims: movePiece() pushes the captured piece (or
+     * null when the move was not a capture) and undo() pops the record of the
+     * move it undoes. This replaces a HashMap<Move, Piece>: two nested
+     * captures on the same square pair shared one key, the inner capture's
+     * victim overwrote the outer's record, and the outer victim was never
+     * restored when the outer capture was undone (the piece silently vanished
+     * from the board). undo() is always called for the most recent
+     * not-yet-undone movePiece() (the search is a strictly nested
+     * move/undo tree), so the log stays aligned.
+     */
+    private LinkedList<Piece> killedPieceLog;
     private Player turnPlayer;
     private int turnNumber;
 
@@ -55,7 +65,7 @@ public class GameBoard {
 
     GameBoard(){
         initBoard();
-        killedPieceMap = new HashMap<>(40);
+        killedPieceLog = new LinkedList<>();
         pieceList = new ArrayList<>();
         turnPlayer = Player.WHITE;
         turnNumber = 0;
@@ -83,7 +93,7 @@ public class GameBoard {
      * @return A GameStep object encapsulating the current State.
      */
     public GameStep createMemento(){
-        return new GameStep(board, turnPlayer, killedPieceMap, turnNumber);
+        return new GameStep(board, turnPlayer, killedPieceLog, turnNumber);
     }
 
     /**
@@ -96,7 +106,7 @@ public class GameBoard {
      */
     public void revertToState(GameStep state){
         turnPlayer = state.getTurnPlayer();
-        killedPieceMap = state.getHashMap();
+        killedPieceLog = state.getKillLog();
         //The turn number is part of the state too: a search aborted by the time
         //limit applies some moves without undoing them, which used to leak into
         //the permanent turn count.
@@ -112,6 +122,12 @@ public class GameBoard {
                 pieceList.add(thisSquarePiece);
 
         }
+
+        //Placing a piece recomputes its cached legal moves against the board AS
+        //IT IS NOW, and the placement above is row by row: a piece placed early
+        //would keep a list computed for a partially restored position. Refresh
+        //every list once the whole board is back.
+        updateAllLegaLMoves();
 
     }
 
@@ -275,7 +291,7 @@ public class GameBoard {
 
         turnNumber = 0;
         turnPlayer = Player.WHITE;
-        killedPieceMap = new HashMap<>(40);
+        killedPieceLog = new LinkedList<>();
         pieceList = new ArrayList<>();
     }
 
@@ -417,7 +433,11 @@ public class GameBoard {
 
         if (toKill != null) {
             kill(toKill);
-            killedPieceMap.put(move, toKill);
+            killedPieceLog.push(toKill);
+        } else {
+            //A null record keeps the log aligned with the move/undo pairs:
+            //undo() pops one record per undone move, capture or not.
+            killedPieceLog.push(null);
         }
 
         destination.setPiece(origin.getPiece());
@@ -442,10 +462,14 @@ public class GameBoard {
         //turn number once more...
         turnNumber -= 1;
 
-        Piece pieceKilled = killedPieceMap.get(move);
-        if (pieceKilled != null) {
-            putPiece(pieceKilled, move.getDestination());
-            killedPieceMap.remove(move, pieceKilled);
+        //undo() is always called for the most recent not-yet-undone movePiece()
+        //(the search is a strictly nested move/undo tree), so the top of the
+        //LIFO log is this move's capture record, if it captured anything.
+        if (!killedPieceLog.isEmpty()) {
+            Piece pieceKilled = killedPieceLog.pop();
+            if (pieceKilled != null) {
+                putPiece(pieceKilled, move.getDestination());
+            }
         }
 
         updateLegalMovesOfSurroundingPieces(move);
