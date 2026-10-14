@@ -1,62 +1,22 @@
 package client;
 
-import game.*;
+import game.GameBoard;
+import game.Player;
 
 /**
  * Static evaluation of the board from WHITE's perspective.
  *
- * White advances toward row 7 (increasing rows), so a piece's advancement is
- * its row. Enemy pieces are charged a +2 defensive premium so the AI avoids
- * unfavorable trades.
+ * Delegates to GameAnalyzer.analyzeFor(board, Player.WHITE): the single
+ * shared evaluation that BlackStrategy mirrors. White advances toward row 7
+ * (increasing rows), so a piece's advancement is its row; enemy pieces are
+ * charged value + advancement + the shared defensive premium (T8).
  */
 public class WhiteStrategy implements Strategy {
 
     private static final GameBoard board = GameBoard.getInstance();
-    private static final Player maxPlayer = Player.WHITE;
 
+    @Override
     public int analyze(){
-
-        int score = 0;
-
-        for (Piece piece : board.getPieceList()) {
-            int value = piece.getScoreValue();
-
-            if (piece.getOwner() == maxPlayer) {
-
-                if (value == 3 && (piece.getColumn() == Columns.A.pos()
-                        || piece.getColumn() == Columns.H.pos())){
-
-                    //A Pushee on an edge file is worthless: it contributes nothing.
-                    //The original code was missing the parentheses, which made
-                    //ANY own piece on file H (including Pushers) worth 0.
-
-                } else {
-                    score += value + piece.getRow();
-                }
-
-            } else {
-
-                score -= (2 + value);
-            }
-
-        }
-
-        // Mobility must be counted for the player the score belongs to (WHITE),
-        // not for the side to move: getAllLegalMovesQuick() returns the side to
-        // move's moves, which is Black at half of all leaves.
-        int ownMobility = 0;
-        for (Piece piece : board.getPieceList()) {
-            if (piece.getOwner() == maxPlayer) {
-                ownMobility += piece.getLegalMovesQuick().size();
-            }
-        }
-        score += ownMobility / 2;
-
-        // T4: threat & safety terms (ready-to-win Pushees, next-ply capture
-        // danger, contested enemy push squares). Shared with BlackStrategy
-        // via GameAnalyzer so both colors score these terms identically.
-        score += GameAnalyzer.threatTerms(board, maxPlayer);
-
-        return score;
+        return GameAnalyzer.analyzeFor(board, Player.WHITE);
     }
 }
