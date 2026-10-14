@@ -140,8 +140,10 @@ public class BugProofTest {
         board.putPiece(new Pusher(Player.BLACK), 3, 7); // row 3, file H
         board.updateAllLegaLMoves();
 
-        // value 7 + advancement (7 - 3 = 4 rows covered toward the goal) = 11
-        assertEquals(11, new BlackStrategy().analyze());
+        // value 7 + advancement (7 - 3 = 4 rows covered toward the goal)
+        // + mobility (2 moves / 2) = 12 (the mobility term is part of the
+        // unified T8 evaluation; enemy pieces are absent, so no premium)
+        assertEquals(12, new BlackStrategy().analyze());
     }
 
     // ---------------------------------------------------------------------------------
@@ -179,9 +181,12 @@ public class BugProofTest {
     /**
      * It is Black's turn and Black has MORE mobility (7 moves) than White (3 moves).
      * White's score must include only White's own mobility:
-     * material +10 (White pusher: 7 + advancement row 3) - 3 x 9 (Black,
-     * including the defensive +2) = -17, own mobility 3/2 = +1 -> -16.
-     * The original code adds Black's 7/2 = 3 (and no advancement) and returns -17.
+     * material +10 (White pusher: 7 + advancement row 3) - (9 + 10 + 10)
+     * (Black: value + advancement + the shared defensive +2, T8 unified)
+     * = -19, own mobility 3/2 = +1 -> -18.
+     * If the mobility were (as in the original bug) counted for the side to
+     * move - Black's 7 moves / 2 = 3 - this position would score -16 instead
+     * of -18, so the pin still detects the regression.
      */
     @Test
     public void testWhiteStrategy_mobilityIsOwnPiecesOnly(){
@@ -192,7 +197,7 @@ public class BugProofTest {
         board.putPiece(new Pusher(Player.BLACK), 6, 4);
         board.updateAllLegaLMoves();
 
-        assertEquals(-16, new WhiteStrategy().analyze());
+        assertEquals(-18, new WhiteStrategy().analyze());
     }
 
     // ---------------------------------------------------------------------------------

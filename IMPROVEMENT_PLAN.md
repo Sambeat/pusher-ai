@@ -55,11 +55,12 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 (if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
 ./build.sh test
-# Expected: OK (88 tests). GameTreeTest takes ~5 s (real time-limited searches);
+# Expected: OK (92 tests). GameTreeTest takes ~5 s (real time-limited searches);
 # PusherApplicationTest drives full-budget searches (a few seconds).
 # (Count history: 42 at T1, +20 from T5's RulesContractTest, +2 from T7's
 # BenchTest, +3 from T3's QuiescenceTest, +14 from T4's ThreatEvalTest,
-# +7 from T2: 4 PusherApplicationTest + 3 BugProofTest regression tests.)
+# +7 from T2: 4 PusherApplicationTest + 3 BugProofTest regression tests,
+# +4 from T8: 3 EvalSymmetryTest + 1 ThreatEvalTest mirror test.)
 ```
 JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
 sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
@@ -463,6 +464,44 @@ small band over 20+ games).
 
 **Risk.** Low-medium (touching both evals at once — the symmetry test is the
 safety net). **Estimate.** 0.5–1 agent-session.
+
+**Findings (post-T8 engine; full suite green ×2 at 92 tests, bench
+deterministic across two runs with the same seed):**
+- `--games 10 --budget 2000 --seed 42` →
+  `{"games":10,"whiteWins":5,"blackWins":5,"avgPlies":13.00,
+  "avgMaxDepth":12.00,"avgMsPerMove":309-332}`; 20-game runs (seeds 42 and
+  7): 10/10, 13.00 plies, 12.00 depth, ~302-309 ms; sanity seed 7, 6 games:
+  3/3, 13.00 plies, 12.00 depth.
+- **The color split is exactly even and is now move-order-driven: the
+  starter wins every game in 13 plies (10/10 over 20 games on both seeds) —
+  the T2 null hypothesis.** T4's 0/10 Black flip is gone: it was the
+  base-eval asymmetry (White charged a flat +2 with no enemy advancement,
+  Black charged advancement with no premium, and only White had the mobility
+  term), exactly what T3/T4 predicted T8 would resolve. T6 should read its
+  baseline against this 13-ply starter-win pattern (12.00 depth, ~310 ms per
+  move at a 2000 ms budget).
+- avgPlies 15.50 → 13.00 and avgMsPerMove ~110 → ~310 ms: the post-T4
+  engine's early ±9000 forced-win cutoffs and the contested 15.5-ply line
+  were artifacts of the biased eval. The unified engine's search profile
+  matches the post-T2 fixed-engine baseline (~294 ms, 13.00 plies, 12.50
+  depth) with T3's quiescence still in place; avgMaxDepth 11.50 → 12.00.
+- **The plan's mirror formula has a sign typo.** T8's acceptance writes
+  `white.analyze(p) == −black.analyze(mirror(p))`, but every strategy here
+  scores from its OWN color's perspective (GameTree maximizes it — a lone
+  own Pusher scores +11 = value + advancement + mobility), so the exact
+  mirror identity under this convention is
+  `white.analyze(p) == +black.analyze(mirror(p))`; the negated form would
+  require own material to score negative and is unsatisfiable by the plan's
+  own required term form. EvalSymmetryTest asserts the equal-sign identity
+  (documented in the test) and additionally pins the exact unified form, so
+  a "symmetric but wrong terms" implementation is caught too.
+- Re-pinned exact values (same regression properties, unified form):
+  BugProofTest lone Black Pusher on file H 11 → 12 (mobility term now on
+  both colors) and the own-mobility position −16 → −18 (enemy advancement
+  now counted for White); ThreatEvalTest threat cluster 1232/437 → 1219/429
+  and the two shield integrations 15/16 → 4/5. T4 acceptance 3 (skipped when
+  T4 landed) is implemented as
+  ThreatEvalTest.mirrorSymmetryForTheThreatTerms.
 
 ---
 

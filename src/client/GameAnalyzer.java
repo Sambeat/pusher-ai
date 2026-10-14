@@ -1,6 +1,7 @@
 package client;
 
 import game.BoardSquare;
+import game.Columns;
 import game.GameBoard;
 import game.Move;
 import game.Piece;
@@ -35,8 +36,94 @@ public class GameAnalyzer {
      */
     public static final int PUSHEE_SHIELD = 20;
 
+    /**
+     * T8: the defensive premium charged for EVERY enemy piece, identical for
+     * both colors. White always had it (a flat +2 per enemy piece); Black
+     * is unified to match, so the two strategies are exact mirrors of each
+     * other (see analyzeFor and EvalSymmetryTest).
+     */
+    public static final int DEFENSIVE_PREMIUM = 2;
+
     public static int analyze(GameBoard board, Strategy strategy){
         return strategy.analyze();
+    }
+
+    /**
+     * T8: the single shared static evaluation, parameterized by the player
+     * the score belongs to. WhiteStrategy and BlackStrategy both delegate
+     * here, so the two strategies are exact mirrors: for every position p,
+     * evaluate(p, WHITE) on p equals evaluate(mirror(p), BLACK) on the
+     * mirrored position (mirror = swap colors, row r -> 7 - r, columns
+     * unchanged). Both scores are from the given player's own perspective -
+     * the convention GameTree's alpha-beta search requires - so a perfectly
+     * mirrored position scores equally for the two colors, not oppositely.
+     *
+     * Terms (all integers, kept far below the +/-9000 forced-win cutoff):
+     *   + (value + advancement)   for each own piece; advancement is the row
+     *                             for WHITE and GAME_BOARD_LENGTH - 1 - row
+     *                             for BLACK. A Pushee on an edge file (A or
+     *                             H) is worth nothing.
+     *   - (value + advancement + DEFENSIVE_PREMIUM) for each enemy piece,
+     *                             advancement in the ENEMY's own direction.
+     *   + own mobility / 2        for the player the score belongs to (NOT
+     *                             the side to move - getAllLegalMovesQuick()
+     *                             returns the side to move's moves, which at
+     *                             half of all leaves is the opponent).
+     *   + the T4 threat & safety terms (see threatTerms), which are
+     *                             mirror-invariant by construction.
+     *
+     * Uses the pieces' cached legal-move lists, which movePiece()/undo() keep
+     * consistent during search (see the engine invariants); outside of search,
+     * call board.updateAllLegaLMoves() first. The score does not depend on
+     * the side to move.
+     */
+    public static int analyzeFor(GameBoard board, Player player){
+        Player enemy = player.other();
+        int score = 0;
+
+        for (Piece piece : board.getPieceList()){
+            int value = piece.getScoreValue();
+
+            if (piece.getOwner() == player){
+                if (value == Pushee.VALUE && (piece.getColumn() == Columns.A.pos()
+                        || piece.getColumn() == Columns.H.pos())){
+
+                    // A Pushee on an edge file is worthless: it contributes
+                    // nothing. (The original code was missing the
+                    // parentheses, which made ANY own piece on file H,
+                    // including Pushers, worth 0 - pinned by BugProofTest.)
+
+                } else {
+                    score += value + advancement(piece, player);
+                }
+
+            } else {
+                score -= (value + advancement(piece, enemy) + DEFENSIVE_PREMIUM);
+            }
+
+        }
+
+        int ownMobility = 0;
+        for (Piece piece : board.getPieceList()){
+            if (piece.getOwner() == player)
+                ownMobility += piece.getLegalMovesQuick().size();
+        }
+        score += ownMobility / 2;
+
+        score += threatTerms(board, player);
+
+        return score;
+    }
+
+    /**
+     * How far a piece has advanced toward its OWN goal row: its row for
+     * WHITE (advances to row 7), GAME_BOARD_LENGTH - 1 - row for BLACK
+     * (advances to row 0). The parameter is the piece's owner.
+     */
+    private static int advancement(Piece piece, Player owner){
+        return (owner == Player.WHITE)
+                ? piece.getRow()
+                : GameBoard.GAME_BOARD_LENGTH - 1 - piece.getRow();
     }
 
     /**

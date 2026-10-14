@@ -23,9 +23,11 @@ import static org.junit.Assert.*;
  *      Pushee one row further back (tests 1-2, both colors);
  *   2. a position that hangs a Pusher to a next-ply capture scores lower than
  *      the identical position with the Pusher moved off the square (test 3);
- *   3. symmetry eval_white(p) == -eval_black(mirror(p)): SKIPPED - T8 has not
- *      landed yet (the shared GameAnalyzer helpers this class relies on are
- *      what T8's symmetry test will mirror);
+ *   3. symmetry eval_white(p) == eval_black(mirror(p)): T8 landed, implemented
+ *      as mirrorSymmetryForTheThreatTerms (the plan's "-" is for the
+ *      single-perspective eval convention; this codebase scores from each
+ *      color's own perspective, so a mirrored position scores EQUAL - see
+ *      EvalSymmetryTest);
  *   4. all realistic evals stay within +/-8000 (and below the +/-9000
  *      forced-win cutoff) over a handful of constructed positions (test 4);
  *   5. at depth 1 the engine does not play a move that hangs a Pusher to an
@@ -378,9 +380,10 @@ public class ThreatEvalTest {
         // The Black side has no ready-to-win WHITE Pushee: no shield for it.
         assertEquals(0, GameAnalyzer.pusheeShieldScore(board, Player.BLACK));
 
-        // Integration: base -6 (W pusher 8, B pushee -5, B pusher -9),
-        // capture threat cancels (-3 hang +3 capture back), mobility +1.
-        assertEquals(15, white.analyze());
+        // Integration (T8 unified form): base -17 (W pusher 8, B pushee
+        // -11, B pusher -14), capture threat cancels (-3 hang +3 capture
+        // back), shield +20, mobility +1.
+        assertEquals(4, white.analyze());
     }
 
     /**
@@ -399,9 +402,9 @@ public class ThreatEvalTest {
         assertEquals(GameAnalyzer.PUSHEE_SHIELD,
                 GameAnalyzer.pusheeShieldScore(board, Player.WHITE));
 
-        // Integration: base -5 (W pusher 9, B pushee -5, B pusher -9), no
-        // capture threat, mobility +1.
-        assertEquals(16, white.analyze());
+        // Integration (T8 unified form): base -16 (W pusher 9, B pushee
+        // -11, B pusher -14), no capture threat, shield +20, mobility +1.
+        assertEquals(5, white.analyze());
     }
 
     /**
@@ -423,16 +426,18 @@ public class ThreatEvalTest {
     /**
      * Full integration of all T4 terms in one position for both colors
      * (the "threat cluster" of the bound test): three ready-to-win teams per
-     * side plus a mesh of mutual captures. Pinned exactly:
-     *   White: base 31, capture threat -3 (9 own hang - 6 enemy hang),
-     *          ready-to-win 3 x 400, shield 0, mobility 9/2 = 4  -> 1232
+     * side plus a mesh of mutual captures. Pinned exactly (T8 unified form:
+     * enemy piece = -(value + own advancement + 2), own mobility /2 for both):
+     *   White: base 18 (own 63 - enemy 45: pushers (6,2)/(6,4) -10 each,
+     *          pusher (2,3) -14, pushee (1,3) -11), capture threat -3
+     *          (9 own hang - 6 enemy hang), ready-to-win 3 x 400, shield 0,
+     *          mobility 9/2 = 4  -> 1219
      *          (each White Pusher's straight square is its own Pushee, so
      *          only the two capture diagonals are legal)
-     *   Black: base -26, capture threat +3, ready-to-win 1 x 400,
-     *          shield 3 x 20 (it can capture all three pushing White Pushers)
-     *          -> 437. The current BlackStrategy has no mobility term yet
-     *          (T8 adds it; T4 must not change engine behavior beyond the
-     *          threat terms).
+     *   Black: base -38 (own 37 - enemy 75: 3 pushees -11, 3 pushers -14),
+     *          capture threat +3, ready-to-win 1 x 400, shield 3 x 20 (it can
+     *          capture all three pushing White Pushers), mobility 9/2 = 4
+     *          -> 429.
      */
     @Test
     public void threatClusterEvaluatesToTheHandComputedValues() {
@@ -449,8 +454,52 @@ public class ThreatEvalTest {
         board.putPiece(new Pusher(Player.BLACK), 2, 3);
         board.updateAllLegaLMoves();
 
-        assertEquals(1232, white.analyze());
-        assertEquals(437, black.analyze());
+        assertEquals(1219, white.analyze());
+        assertEquals(429, black.analyze());
+    }
+
+    /**
+     * T4 acceptance 3 (implemented now that T8 landed): the T4 threat terms
+     * are mirror-invariant, so on this threat-heavy position the two
+     * strategies are exact mirrors: white.analyze(p) ==
+     * black.analyze(mirror(p)). Mirror = swap colors, row r -> 7 - r
+     * (columns unchanged). Equality, not negation: both strategies score
+     * from their own color's perspective (see EvalSymmetryTest).
+     */
+    @Test
+    public void mirrorSymmetryForTheThreatTerms() {
+        // The threat cluster (same position as the pinned test above).
+        setupWhiteToMove();
+        board.putPiece(new Pushee(Player.WHITE), 6, 1);
+        board.putPiece(new Pushee(Player.WHITE), 6, 3);
+        board.putPiece(new Pushee(Player.WHITE), 6, 5);
+        board.putPiece(new Pusher(Player.WHITE), 5, 1);
+        board.putPiece(new Pusher(Player.WHITE), 5, 3);
+        board.putPiece(new Pusher(Player.WHITE), 5, 5);
+        board.putPiece(new Pusher(Player.BLACK), 6, 2);
+        board.putPiece(new Pusher(Player.BLACK), 6, 4);
+        board.putPiece(new Pushee(Player.BLACK), 1, 3);
+        board.putPiece(new Pusher(Player.BLACK), 2, 3);
+        board.updateAllLegaLMoves();
+        int whiteOnP = white.analyze();
+
+        // The mirror: White<->Black, row r -> 7 - r.
+        setupBlackToMove();
+        board.putPiece(new Pusher(Player.BLACK), 2, 1);
+        board.putPiece(new Pusher(Player.BLACK), 2, 3);
+        board.putPiece(new Pusher(Player.BLACK), 2, 5);
+        board.putPiece(new Pushee(Player.BLACK), 1, 1);
+        board.putPiece(new Pushee(Player.BLACK), 1, 3);
+        board.putPiece(new Pushee(Player.BLACK), 1, 5);
+        board.putPiece(new Pusher(Player.WHITE), 1, 2);
+        board.putPiece(new Pusher(Player.WHITE), 1, 4);
+        board.putPiece(new Pushee(Player.WHITE), 6, 3);
+        board.putPiece(new Pusher(Player.WHITE), 5, 3);
+        board.updateAllLegaLMoves();
+        int blackOnMirror = black.analyze();
+
+        assertEquals("T4 terms must mirror identically (T8)",
+                whiteOnP, blackOnMirror);
     }
 
     // --------------------------------------------------------------- acceptance 5
