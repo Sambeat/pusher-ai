@@ -1,0 +1,82 @@
+package tests;
+
+import client.Bench;
+import org.junit.Test;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+
+import static org.junit.Assert.*;
+
+/**
+ * T7 smoke test: the bench runs one real self-play game on a short budget,
+ * reports it (per-game line + single-line JSON summary) and stays fast.
+ * The full-suite guard for the T7 acceptance criteria (bench CLI under 60 s
+ * for 3 games @ 1000 ms) is the manual run documented in the T7 task.
+ */
+public class BenchTest {
+
+    private static final int MAX_ALLOTTED_TIME_MILLIS = 10_000;
+
+    @Test
+    public void oneGameShortBudgetRunsAndReports() {
+        long before = System.currentTimeMillis();
+
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        Bench.Summary summary;
+        try {
+            System.setOut(new PrintStream(captured, true, StandardCharsets.UTF_8));
+            summary = Bench.run(new String[]{
+                    "--games", "1", "--budget", "500", "--seed", "7"});
+        } finally {
+            System.setOut(originalOut);
+        }
+        long elapsed = System.currentTimeMillis() - before;
+
+        assertNotNull("bench must run and return a summary", summary);
+        assertEquals(1, summary.games.size());
+
+        Bench.GameResult game = summary.games.get(0);
+        assertTrue("game must have produced moves (plies=" + game.plies + ")",
+                game.plies > 0);
+        assertTrue("winner must be set unless the game was truncated",
+                game.winner != null || game.truncated);
+        assertTrue("search must complete at least level 1 (maxDepth="
+                + game.maxDepth + ")", game.maxDepth >= 1);
+        assertTrue(game.elapsedMs > 0);
+        assertTrue(summary.avgMsPerMove > 0);
+        assertEquals(1, summary.whiteWins + summary.blackWins
+                + (game.truncated ? 1 : 0));
+
+        String stdout = captured.toString(StandardCharsets.UTF_8);
+        String jsonLine = summary.toJsonLine();
+        assertTrue("summary JSON line must be printed: " + jsonLine,
+                stdout.contains(jsonLine));
+        assertTrue("per-game report line must be printed",
+                stdout.contains("game 1:"));
+
+        assertTrue("one 500 ms-budget game must finish in under 10 s "
+                + "(took " + elapsed + " ms)", elapsed < MAX_ALLOTTED_TIME_MILLIS);
+    }
+
+    @Test
+    public void invalidArgumentsAreRejected() {
+        ByteArrayOutputStream capturedErr = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        Bench.Summary summary;
+        try {
+            System.setErr(
+                    new PrintStream(capturedErr, true, StandardCharsets.UTF_8));
+            summary = Bench.run(new String[]{"--games"});
+        } finally {
+            System.setErr(originalErr);
+        }
+
+        assertNull("a missing value must be rejected", summary);
+        assertTrue("usage must be printed: "
+                + capturedErr.toString(StandardCharsets.UTF_8),
+                capturedErr.toString(StandardCharsets.UTF_8).contains("Usage:"));
+    }
+}
