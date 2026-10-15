@@ -1,6 +1,7 @@
 package tests;
 
 import client.GameTree;
+import client.TranspositionTable;
 import game.*;
 import org.junit.*;
 import static org.junit.Assert.*;
@@ -26,9 +27,16 @@ import static org.junit.Assert.*;
  * the safety net for subtle value errors; the retry and cutoff tests pin the
  * specific interactions the plan calls out.
  *
- * Part B (PVS) tests will be added to this file when that task lands.
+ * Part B (PVS) tests below use the same score-based pattern: PVS is exact
+ * (a null window reports a violation exactly when the child is a PV candidate,
+ * and the fail-high re-search recovers the true value), so every root score
+ * with PVS on must equal the pre-Part-B engine's (PVS off — the constructor
+ * flag restores the full-window child loop verbatim) on the same position and
+ * seed. Move-identity checks are limited to positions whose best move at the
+ * test depth is unique in value, so shuffle ties cannot flake them (the same
+ * lesson as Part A's move-based check).
  *
- * @see IMPROVEMENT_PLAN.md task T13 (Part A)
+ * @see IMPROVEMENT_PLAN.md task T13 (Parts A and B)
  */
 public class AspirationPvsTest {
 
@@ -98,6 +106,45 @@ public class AspirationPvsTest {
         board.updateAllLegaLMoves();
     }
 
+    /** Two root captures; the best-ordered one (MVV-LVA: the pushee's capture
+     *  of a pusher, C5D6) is worth ~2, while the second-ordered capture (E6D7)
+     *  is a depth-3 forced win. Only the null window + fail-high re-search of
+     *  E6D7 finds the winning score: without the re-search the root score is a
+     *  bound and later tied quiet moves can steal the choice. */
+    private void setCaptureRace(){
+        board.reset();
+        board.setCurrentPlayer(Player.WHITE);
+        board.putPiece(new Pusher(Player.WHITE), 3, 1);   // behind the pushee
+        board.putPiece(new Pushee(Player.WHITE), 4, 2);   // captures E5
+        board.putPiece(new Pusher(Player.WHITE), 5, 4);   // captures D7 (wins)
+        board.putPiece(new Pusher(Player.BLACK), 5, 3);   // the pushee's target
+        board.putPiece(new Pusher(Player.BLACK), 6, 3);   // the pusher's target
+        board.putPiece(new Pusher(Player.BLACK), 6, 2);   // recaptures the pushee
+        board.updateAllLegaLMoves();
+    }
+
+    /** White to move. The Black pusher (1,1) is one move from the Black goal
+     *  row; the unique best move is the rescue capture (0,0) -> (1,1). */
+    private void setRescue(){
+        board.reset();
+        board.setCurrentPlayer(Player.WHITE);
+        board.putPiece(new Pusher(Player.WHITE), 0, 0);
+        board.putPiece(new Pusher(Player.WHITE), 5, 5);
+        board.putPiece(new Pusher(Player.BLACK), 1, 1);
+        board.updateAllLegaLMoves();
+    }
+
+    /** GameTreeTest.testStupidLoss geometry, Black to move: Black must capture
+     *  the White pusher (6,6) that threatens the White goal row. */
+    private void setStupidLoss(){
+        board.reset();
+        board.setCurrentPlayer(Player.BLACK);
+        board.putPiece(new Pusher(Player.BLACK), 2, 5);
+        board.putPiece(new Pusher(Player.BLACK), 7, 5);
+        board.putPiece(new Pusher(Player.WHITE), 6, 6);
+        board.updateAllLegaLMoves();
+    }
+
     // ------------------------------------------------------------------
     // 1. Aspiration returns the exact value (the safety net; acceptance 7).
     // ------------------------------------------------------------------
@@ -122,12 +169,15 @@ public class AspirationPvsTest {
     private void checkExact(String which, long seed, int[] depths){
         for (int depth : depths){
             setPos(which);
-            int withAspiration = new GameTree(Player.WHITE, Player.BLACK, BUDGET, seed,
-                    true, true).aspirationScoreAtDepth(depth);
+            int withAspiration = treeFor(which, seed, true, true, true)
+                    .aspirationScoreAtDepth(depth);
 
+            // The reference is the pre-T13 engine: full window at every level,
+            // and PVS off as well (a single debugSearchScore does not use
+            // aspiration, but the flag keeps the child loop verbatim pre-T13).
             setPos(which);
-            int reference = new GameTree(Player.WHITE, Player.BLACK, BUDGET, seed,
-                    true, false).debugSearchScore(depth, Integer.MIN_VALUE, Integer.MAX_VALUE);
+            int reference = treeFor(which, seed, true, false, false)
+                    .debugSearchScore(depth, Integer.MIN_VALUE, Integer.MAX_VALUE);
 
             assertEquals(withAspiration, reference);
         }
@@ -141,6 +191,9 @@ public class AspirationPvsTest {
      * On the 32-piece start at depth 4, a window of (score +/- 5) around the
      * true score returns the SAME score as a full window but visits fewer
      * nodes. The tight window lets the root's min children fail low sooner.
+     * PVS is disabled on BOTH trees: with PVS active the null windows already
+     * prune this position down to the same node count, so the aspiration
+     * effect would be invisible (see the PVS node test below).
      */
     @Test
     public void narrowAspirationWindowIsExactAndPrunesMore(){
@@ -149,14 +202,14 @@ public class AspirationPvsTest {
 
         setDefaultStart();
         GameTree fullTree = new GameTree(Player.WHITE, Player.BLACK, BUDGET, seed,
-                false, true);
+                false, true, false);
         int fullScore = fullTree.debugSearchScore(depth,
                 Integer.MIN_VALUE, Integer.MAX_VALUE);
         long fullNodes = fullTree.getNodeCount();
 
         setDefaultStart();
         GameTree narrowTree = new GameTree(Player.WHITE, Player.BLACK, BUDGET, seed,
-                false, true);
+                false, true, false);
         int narrowScore = narrowTree.debugSearchScore(depth,
                 fullScore - 5, fullScore + 5);
         long narrowNodes = narrowTree.getNodeCount();
@@ -288,7 +341,208 @@ public class AspirationPvsTest {
             case "tactical": setTactical(); break;
             case "defaultStart": setDefaultStart(); break;
             case "whiteForcedWin": setWhiteForcedWin(); break;
+            case "captureRace": setCaptureRace(); break;
+            case "rescue": setRescue(); break;
+            case "stupidLoss": setStupidLoss(); break;
             default: throw new IllegalArgumentException(which);
+        }
+    }
+
+    /**
+     * A fresh tree for the given position: max = side to move (the
+     * production configuration — each tree is for the side that must move,
+     * so the root is always a max node).
+     */
+    private GameTree treeFor(String which, long seed, boolean transpositionEnabled,
+                             boolean aspirationEnabled, boolean pvsEnabled){
+        setPos(which);
+        Player max = board.getCurrentPlayer();
+        return new GameTree(max, max.other(), BUDGET, seed, transpositionEnabled,
+                aspirationEnabled, pvsEnabled);
+    }
+
+    /** A diagonal move onto an enemy square (the tests cannot reach
+     *  GameTree's private capture check). */
+    private static boolean isCapture(Move move, Player player){
+        Piece destinationPiece = move.getDestination().getPiece();
+        return destinationPiece != null
+                && destinationPiece.getOwner() != player;
+    }
+
+    // ------------------------------------------------------------------
+    // T13 Part B — PVS (null window + fail-high re-search in the child loop)
+    // ------------------------------------------------------------------
+
+    /**
+     * B1 — PVS correctness (fixed value; acceptance 1). At every depth, the
+     * root score with PVS active equals the pre-Part-B engine's (PVS off —
+     * the constructor flag restores the full-window child loop verbatim,
+     * which is the inlined reference the plan describes). PVS is pure
+     * search pruning: it changes which nodes are visited, never the
+     * game-theoretic value. The forced-win positions (whiteForcedWin, and
+     * the depth-3/4 lines of captureRace) additionally show the ±9000
+     * cutoff still fires with PVS active.
+     */
+    @Test
+    public void pvsReturnsExactValueAtEveryDepth(){
+        final long seed = 42L;
+        final int[] depths = {2, 3, 4};
+
+        checkPvsExact("race", seed, depths);
+        checkPvsExact("tactical", seed, depths);
+        checkPvsExact("captureRace", seed, depths);
+        checkPvsExact("rescue", seed, depths);
+        checkPvsExact("stupidLoss", seed, depths);
+        checkPvsExact("defaultStart", seed, depths);
+        checkPvsExact("whiteForcedWin", seed, depths);
+    }
+
+    private void checkPvsExact(String which, long seed, int[] depths){
+        for (int depth : depths){
+            setPos(which);
+            int withPvs = treeFor(which, seed, true, false, true)
+                    .debugSearchScore(depth, Integer.MIN_VALUE, Integer.MAX_VALUE);
+
+            setPos(which);
+            int reference = treeFor(which, seed, true, false, false)
+                    .debugSearchScore(depth, Integer.MIN_VALUE, Integer.MAX_VALUE);
+
+            assertEquals(which + " depth " + depth, reference, withPvs);
+        }
+    }
+
+    /**
+     * B2 — the PVS re-search fires and finds the best move (acceptance 2).
+     * On the 'captureRace' position the best-ordered root child (the MVV-LVA
+     * capture C5D6) is worth ~2; the best move is the OTHER capture (E6D7),
+     * a depth-3 forced win ordered second. Its null window (alpha, alpha + 1)
+     * fails high and the fail-high re-search is what recovers the winning
+     * score. Without the re-search the root score would be the null-window
+     * bound and a later tied quiet move could steal the choice, so the
+     * assertions below pin the re-search directly. (Under T6's ordering a
+     * capture can never follow a quiet move at a fresh root, so the plan's
+     * "quiet first child" variant cannot occur; this position realizes the
+     * essential case: the best-ordered child is not the best move, and the
+     * best move is a capture found only through the re-search.)
+     */
+    @Test
+    public void pvsResearchedWhenNullWindowViolates(){
+        final long seed = 42L;
+        final int depth = 3;
+
+        setPos("captureRace");
+        GameTree reference = treeFor("captureRace", seed, true, false, false);
+        Move expected = reference.getBestMoveQuick(depth);
+
+        setPos("captureRace");
+        GameTree pvs = treeFor("captureRace", seed, true, false, true);
+        Move chosen = pvs.getBestMoveQuick(depth);
+
+        assertEquals("PVS must choose the same move as the pre-PVS engine",
+                expected, chosen);
+        assertTrue("the chosen move must be the capture: " + chosen,
+                isCapture(chosen, Player.WHITE));
+        assertTrue("a null-window violation must have triggered a re-search",
+                pvs.getPvsResearched() > 0);
+    }
+
+    /**
+     * B3 — PVS is exact and prunes (the PVS counterpart of acceptance 3).
+     * On the 32-piece start at depth 4, with the TT disabled on both trees
+     * (isolating PVS), PVS visits fewer nodes than the pre-PVS full-window
+     * search and returns the same score: the null windows cut siblings that
+     * the full window would have searched, and the re-searches are rarer
+     * than the siblings they replace at this branching.
+     */
+    @Test
+    public void pvsIsExactAndPrunesMore(){
+        final long seed = 42L;
+        final int depth = 4;
+
+        setDefaultStart();
+        GameTree offTree = treeFor("defaultStart", seed, false, false, false);
+        int offScore = offTree.debugSearchScore(depth,
+                Integer.MIN_VALUE, Integer.MAX_VALUE);
+        long offNodes = offTree.getNodeCount();
+
+        setDefaultStart();
+        GameTree onTree = treeFor("defaultStart", seed, false, false, true);
+        int onScore = onTree.debugSearchScore(depth,
+                Integer.MIN_VALUE, Integer.MAX_VALUE);
+        long onNodes = onTree.getNodeCount();
+
+        assertEquals("PVS must not change the value", offScore, onScore);
+        assertTrue("PVS must visit fewer nodes (off=" + offNodes
+                + ", on=" + onNodes + ")", onNodes < offNodes);
+    }
+
+    /**
+     * B4 — TT flag consistency (acceptance 6). On the 'tactical' position at
+     * depth 3 (unique best move, so both trees search the same child), the
+     * entry stored at the root's child after a PVS search has the same flag,
+     * score and depth as the one the pre-PVS search stores there: the store
+     * uses the node's final alpha/beta after any re-search, exactly as
+     * before.
+     */
+    @Test
+    public void pvsStoresSameTTFlagsAsPrePvs(){
+        final long seed = 42L;
+        final int depth = 3;
+
+        setPos("tactical");
+        Move childMove = treeFor("tactical", seed, true, false, false)
+                .getBestMoveQuick(depth);
+
+        TranspositionTable.Entry[] entries = new TranspositionTable.Entry[2];
+        for (int i = 0; i < 2; i++){
+            boolean t13on = (i == 1);
+            setPos("tactical");
+            GameTree tree = treeFor("tactical", seed, true, t13on, t13on);
+            Move best = tree.getBestMoveQuick(depth);
+            assertEquals("the best move must be the same with and without PVS",
+                    childMove, best);
+
+            board.movePiece(best);
+            long hash = board.getZobristHash();
+            int turn = board.getTurnNumber();
+            board.undo(best);
+            entries[i] = tree.probeTT(hash, turn);
+        }
+
+        assertNotNull("the child position must be in the pre-PVS table", entries[0]);
+        assertNotNull("the child position must be in the PVS table", entries[1]);
+        assertEquals("PVS must store the same flag at the root's child",
+                entries[0].flag, entries[1].flag);
+        assertEquals("... with the same score", entries[0].score, entries[1].score);
+        assertEquals("... at the same depth", entries[0].depth, entries[1].depth);
+    }
+
+    /**
+     * B5 — determinism with T13 on vs off (acceptance 7). With a fixed seed,
+     * the best move chosen on five fixed positions (each with a unique best
+     * move at the test depth, verified across the seeds below so shuffle ties
+     * cannot flake the check) is identical with T13 (aspiration + PVS) on
+     * and off. The positions cover the interesting PVS shapes: a quiet race,
+     * a capture cluster, a re-search-found capture, a rescue capture, and a
+     * Black-to-move root (a max node for the Black tree, as in production).
+     */
+    @Test
+    public void t13OnAndOffChooseTheSameMove(){
+        final int depth = 3;
+        final long[] seeds = {42L, 1337L, 2024L, 7L, 999L};
+        final String[] positions = {"race", "tactical", "captureRace",
+                "rescue", "stupidLoss"};
+
+        for (String which : positions){
+            for (long seed : seeds){
+                setPos(which);
+                Move off = treeFor(which, seed, true, false, false)
+                        .getBestMoveQuick(depth);
+                setPos(which);
+                Move on = treeFor(which, seed, true, true, true)
+                        .getBestMoveQuick(depth);
+                assertEquals(which + " seed=" + seed + " (T13 on vs off)", off, on);
+            }
         }
     }
 }

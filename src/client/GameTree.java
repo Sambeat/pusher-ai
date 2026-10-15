@@ -116,6 +116,11 @@ public class GameTree {
     // same positions with aspiration on and off.
     private boolean aspirationEnabled;
 
+    // T13 Part B: when false, alphaBeta searches every child with the full
+    // window (the pre-Part-B behavior). The determinism check searches the
+    // same positions with PVS on and off.
+    private boolean pvsEnabled;
+
     // T13 test hook: number of alphaBeta node visits by the most recent
     // search (main-search and q-nodes alike). A plain counter; the tests use
     // it to show an aspiration window visits fewer nodes than a full window
@@ -128,9 +133,15 @@ public class GameTree {
     // aspiration is disabled.
     private int aspirationRetries;
 
+    // T13 test hook: number of PVS fail-high re-searches (a null-window
+    // child whose score violated the bound and was re-searched with the
+    // full window) by the most recent search. Reset at the start of each
+    // search; always 0 when PVS is disabled.
+    private int pvsResearched;
+
 
     public GameTree(Player maxPlayer, Player minPlayer){
-        this(maxPlayer, minPlayer, MAX_TIME_MILLIS, null, true, true, true);
+        this(maxPlayer, minPlayer, MAX_TIME_MILLIS, null, true, true, true, true);
     }
 
     /**
@@ -145,7 +156,7 @@ public class GameTree {
      *             non-deterministic play.
      */
     public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis, Long seed){
-        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false, true, true);
+        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false, true, true, true);
     }
 
     /**
@@ -156,7 +167,7 @@ public class GameTree {
     public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
                     Long seed, boolean transpositionEnabled){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, true);
+                transpositionEnabled, true, true);
     }
 
     /**
@@ -169,12 +180,26 @@ public class GameTree {
                     Long seed, boolean transpositionEnabled,
                     boolean aspirationEnabled){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, aspirationEnabled);
+                transpositionEnabled, aspirationEnabled, true);
+    }
+
+    /**
+     * T13 Part B: like the 6-argument constructor, with PVS (the
+     * principal-variation null-window search + fail-high re-search in the
+     * child loop) explicitly enabled or disabled (the determinism check
+     * needs the same search with PVS off, the pre-Part-B full-window
+     * behavior).
+     */
+    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
+                    Long seed, boolean transpositionEnabled,
+                    boolean aspirationEnabled, boolean pvsEnabled){
+        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
+                transpositionEnabled, aspirationEnabled, pvsEnabled);
     }
 
     private GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
                      Long randomSeed, boolean verbose, boolean transpositionEnabled,
-                     boolean aspirationEnabled){
+                     boolean aspirationEnabled, boolean pvsEnabled){
         this.maxPlayer = maxPlayer;
         this.minPlayer = minPlayer;
         this.timeBudgetMillis = timeBudgetMillis;
@@ -182,6 +207,7 @@ public class GameTree {
         this.verbose = verbose;
         this.tt = transpositionEnabled ? new TranspositionTable() : null;
         this.aspirationEnabled = aspirationEnabled;
+        this.pvsEnabled = pvsEnabled;
 
         switch (maxPlayer){
             case WHITE:
@@ -244,6 +270,25 @@ public class GameTree {
     }
 
     /**
+     * T13 test hook: PVS fail-high re-searches by the most recent search
+     * (0 when PVS is disabled or no null-window search violated its bound).
+     */
+    public int getPvsResearched(){
+        return pvsResearched;
+    }
+
+    /**
+     * T13 test hook: probe the transposition table directly (the TT flag
+     * consistency check compares the entry a PVS search stores at a position
+     * with the one the pre-PVS search stores there). Returns null when the
+     * table was disabled or the slot is empty. Counts as a probe, as for any
+     * lookup.
+     */
+    public TranspositionTable.Entry probeTT(long hash, int turnNumber){
+        return tt == null ? null : tt.probe(hash, turnNumber);
+    }
+
+    /**
      * T10: the Zobrist key (T6) with the side-to-move contribution removed:
      * it identifies the piece arrangement alone, so "the game has been in
      * this position before" does not depend on which side is to move (a
@@ -292,6 +337,7 @@ public class GameTree {
         random = nextRandom();
         nodeCount = 0;
         aspirationRetries = 0;
+        pvsResearched = 0;
         //T10: remember this arrangement so the root loop can penalize a
         //move that returns to it (shuffle-breaking; root only).
         addRepetitionPosition(arrangementHash(board.getZobristHash(),
@@ -402,6 +448,7 @@ public class GameTree {
         random = nextRandom();
         nodeCount = 0;
         aspirationRetries = 0;
+        pvsResearched = 0;
         GameStep snapshot = board.createMemento();
         Object[] moveInfo = null;
         int prevScore = 0;
@@ -429,6 +476,7 @@ public class GameTree {
         start = System.currentTimeMillis();
         random = nextRandom();
         nodeCount = 0;
+        pvsResearched = 0;
         //T10: same history append as the no-arg overload (both enter the
         //search at the root, where the penalty is applied).
         addRepetitionPosition(arrangementHash(board.getZobristHash(),
@@ -457,6 +505,7 @@ public class GameTree {
         start = System.currentTimeMillis();
         random = nextRandom();
         nodeCount = 0;
+        pvsResearched = 0;
         try {
             return (Integer) alphaBeta(depth, maxPlayer, alpha, beta)[0];
         } catch (Exception e){
@@ -606,17 +655,59 @@ public class GameTree {
         int originalAlpha = alpha;
         int originalBeta = beta;
 
+        // T13 Part B: PVS. The first child (the best-ordered move: the TT
+        // best move, or the first shuffled move at level 1) is searched with
+        // the full window, so the bound it establishes is exact for the rest;
+        // every later child is searched with a zero-width "null" window
+        // (max node: (alpha, alpha + 1), min node: (beta - 1, beta)). A
+        // null-window result that violates the bound (score > alpha at a max
+        // node, score < beta at a min node) means the child is a principal
+        // variation candidate: it is re-searched immediately with the full
+        // window (the standard PVS fail-high retry) and the RE-SEARCHED score
+        // is the one used below. The re-search reuses the already-applied
+        // move: the null-window search undid all of its own descendants, so
+        // the board is still in the position after `move`. PVS applies at
+        // depth > 0 only: depth-0 nodes exit to quiescence above and have no
+        // child loop. The repetition penalty, the alpha/beta update and the
+        // cutoff below are unchanged and run on the final score. With
+        // pvsEnabled false this is exactly the pre-Part-B full-window loop
+        // (the determinism check). The null window is always a legal window:
+        // alpha < beta here (the loop breaks on alpha >= beta), so
+        // alpha + 1 <= beta at a max node and beta - 1 >= alpha at a min
+        // node — no overflow.
+        int moveNumber = 0;
         for (Move move : legalMoves){
 
             board.movePiece(move);
 
             //Update score with alpha/beta pruning
             if (player == maxPlayer) {
-                score = (Integer) alphaBeta(depth - 1, minPlayer, alpha, beta, 0)[0];
+                if (pvsEnabled && moveNumber > 0){
+                    score = (Integer) alphaBeta(depth - 1, minPlayer,
+                            alpha, alpha + 1, 0)[0];
+                    if (score > alpha){
+                        pvsResearched++;
+                        score = (Integer) alphaBeta(depth - 1, minPlayer,
+                                alpha, beta, 0)[0];
+                    }
+                } else {
+                    score = (Integer) alphaBeta(depth - 1, minPlayer, alpha, beta, 0)[0];
+                }
 
             } else {
-                score = (Integer) alphaBeta(depth - 1, maxPlayer, alpha, beta, 0)[0];
+                if (pvsEnabled && moveNumber > 0){
+                    score = (Integer) alphaBeta(depth - 1, maxPlayer,
+                            beta - 1, beta, 0)[0];
+                    if (score < beta){
+                        pvsResearched++;
+                        score = (Integer) alphaBeta(depth - 1, maxPlayer,
+                                alpha, beta, 0)[0];
+                    }
+                } else {
+                    score = (Integer) alphaBeta(depth - 1, maxPlayer, alpha, beta, 0)[0];
+                }
             }
+            moveNumber++;
 
             // T10: anti-repetition, at the root only. A move that returns
             // the game to a recently seen piece arrangement is damped
