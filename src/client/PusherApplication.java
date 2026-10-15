@@ -197,35 +197,12 @@ public class PusherApplication {
 			return;
 		}
 
-		String moveParameters = toServerMoveString(move);
+		String moveParameters = move.toString();
 		output.write(moveParameters.getBytes(), 0, moveParameters.length());
 		output.flush();
 
-		System.out.println(moveParameters);
+		System.out.println(move);
 		System.out.println(board);
-	}
-
-	/**
-	 * T11: encode a move in the server's 7-character format (confirmed by the
-	 * server owner, docs/RULES.md item 6): origin column + row at indexes 0-1,
-	 * destination column + row at indexes 5-6, three padding spaces between
-	 * (assumed — the server is believed to read only the fixed positions, as
-	 * the client's own parser does; see the doc's open questions). Row digits
-	 * are 1-8 with 1 = row 0 (the top row). Exposed for tests.
-	 *
-	 * @param move The move to encode.
-	 * @return e.g. "D2   E3" for D2 -> E3.
-	 */
-	public static String toServerMoveString(Move move) {
-		char[] s = new char[7];
-		s[0] = (char) ('A' + move.getPieceLocation().getColumn());
-		s[1] = (char) ('1' + move.getPieceLocation().getRow());
-		s[2] = ' ';
-		s[3] = ' ';
-		s[4] = ' ';
-		s[5] = (char) ('A' + move.getDestination().getColumn());
-		s[6] = (char) ('1' + move.getDestination().getRow());
-		return new String(s);
 	}
 
 	/**

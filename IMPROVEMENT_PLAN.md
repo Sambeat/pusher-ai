@@ -55,7 +55,7 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 (if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
 ./build.sh test
-# Expected: OK (111 tests). GameTreeTest takes ~5 s (real time-limited searches);
+# Expected: OK (109 tests). GameTreeTest takes ~5 s (real time-limited searches);
 # PusherApplicationTest drives full-budget searches (a few seconds).
 # (Count history: 42 at T1, +20 from T5's RulesContractTest, +2 from T7's
 # BenchTest, +3 from T3's QuiescenceTest, +14 from T4's ThreatEvalTest,
@@ -65,8 +65,9 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 # +6 from T9: 3 PusherApplicationTest framing tests + 3 readLine/
 # parseBoardPayload unit tests,
 # +3 from T10's RepetitionTest: 2 engine + 1 app-level,
-# +3 from T11: 2 protocol tests (board orientation + 7-char wire format)
-# + 1 toServerMoveString unit test.)
+# +1 from T11 (board-orientation test; the two move-format tests from its
+# first pass were reverted after the server owner confirmed the initial
+# 4-char format).)
 ```
 JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
 sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
@@ -765,23 +766,26 @@ the client burns CPU forever.
   close to the 300-ply cap, and the penalty has no measurable effect on the
   standard bench position (the 13-ply forced line contains no repetitions).
 
-### T11 — Apply the server-confirmed rules (board orientation + 7-char moves)
+### T11 — Apply the server-confirmed rules (board orientation; move format = initial 4-char)
 **Goal.** Record the server owner's answers to T5's open questions
-(`docs/RULES.md`) and implement the two that change behavior: the board-text
-orientation and the 7-char move string the server expects.
+(`docs/RULES.md`) and implement the change they require: the board-text
+orientation. (The first pass also switched the move send to a 7-char layout;
+the follow-up confirmed the initial 4-char format was the right one and that
+was reverted — see answer 6.)
 
 **Depends on:** T5 (the questions it answers), T9 (the payload plumbing it
 changes). **Not dependent on any engine task — no search/eval changes.**
 
-**Scope.** `src/client/PusherApplication.java` (board placement order, 7-char
-move send), `src/tests/MockPusherServer.java` (encode what the real server
+**Scope.** `src/client/PusherApplication.java` (board placement order; the
+move send stays the initial 4-char — see answer 6), `src/tests/MockPusherServer.java` (encode what the real server
 sends), `src/tests/PusherApplicationTest.java`, `src/tests/RepetitionTest.java`
-(7-char opponent moves), `docs/RULES.md`, `README.md` (the one-line client
+(opponent moves stay 4-char), `docs/RULES.md`, `README.md` (the one-line client
 description).
 
 **Answers (server owner):**
 1. **Win condition:** any piece (Pusher or Pushee) on the enemy goal row
-   wins; the BLACK-wins-tie rule stands, but a double goal-row position is
+   wins — explicitly confirmed in the follow-up ("both pieces can win");
+   the BLACK-wins-tie rule stands, but a double goal-row position is
    impossible in play (players alternate; the first goal-row landing ends
    the game). → no code change.
 2. **Captures:** diagonal-only. → no code change.
@@ -794,12 +798,14 @@ description).
    A1 (row 0, col 0), left-to-right, top-to-bottom. The client placed the
    1st token at H8 (bottom-right): the exact 180° rotation. → `placeBoard`
    flipped.
-6. **Move text:** **the server expects 7 chars** (origin at indices 0–1,
-   destination at indices 5–6 — the layout the client's legacy parser
-   already encodes); the client sent 4. → the client now sends 7
-   (`toServerMoveString`); the three middle characters are assumed to be
-   spaces (both the server and the client's own parser read only the fixed
-   positions). Framing stays unconfirmed (T9's newline assumption stands).
+6. **Move text:** the client's **initial 4-char format is the right one**
+   (follow-up: "the initial format was the right one, why are you trying to
+   change the format?"). T11's first pass had read the earlier "Didn't the
+   server expect 7 chars?" as confirmation of a 7-char send and added
+   `toServerMoveString` — that was reverted: `communicateMove` sends
+   `move.toString()` (4-char) again, and `parseMove`'s lenient legacy
+   7-char acceptance is unchanged. Framing stays unconfirmed (T9's newline
+   assumption stands).
 7. **Endless play:** impossible under the confirmed rules (every ply
    advances one piece one row toward its goal row; the total
    remaining-distance potential strictly decreases, so a position can never
@@ -810,17 +816,17 @@ description).
 1. `boardPayloadIsPlacedTopLeftFirst` — a marker board (a piece on each
    corner + two mid-board squares) sent via `'2'` is placed exactly as sent
    (red pre-flip: the board comes back as the 180° rotation).
-2. `appRespondsWithSevenCharServerMoves` — the app's response is exactly
-   7 chars with a legal origin/destination at the protocol indices (red
-   pre-fix: a 4-char send never completes a 7-byte read).
-3. `serverMoveStringPutsOriginAndDestinationAtTheProtocolIndexes` — unit
-   pin of the encoding (`D2   E3` for D2 -> E3).
-4. All scenario tests now speak the real protocol: the mock encodes boards
-   top-left-first and sends opponent moves 7-char
-   (`MockPusherServer.serverMove`); the response readers (mock + AppSession)
-   read 7-byte chunks; `RulesContractTest` stays untouched (items 1–4 are
+2. Move send: the client sends the initial 4-char format (`move.toString()`),
+   confirmed as the right one by the server owner's follow-up. (First pass,
+   reverted: a 7-char `toServerMoveString` send plus two format tests were
+   added on the strength of "Didn't the server expect 7 chars?"; the
+   follow-up made it clear the initial format was correct, so they were
+   removed.)
+3. All scenario tests speak the confirmed protocol: the mock encodes boards
+   top-left-first; client responses are the 4-char format (mock + AppSession
+   read 4-byte chunks); `RulesContractTest` stays untouched (items 1–4 are
    unchanged by this task).
-5. Full suite green ×2.
+4. Full suite green ×2.
 
 **Verification.** Full suite ×2; `./build.sh test` expected count updated.
 
@@ -828,37 +834,38 @@ description).
 safety net — they pin position AND piece type for every board sent).
 **Estimate.** 1 agent-session.
 
-**Findings (post-T11 client; full suite green ×2 at 111 tests):**
+**Findings (post-T11 client; full suite green ×2 at 109 tests):**
 - The orientation fix is a pure 180° rotation: `placeBoard` now walks the
   tokens left-to-right, top-to-bottom from A1 (row 0, col 0), and
   `MockPusherServer.boardText` encodes the same order, so every existing
   round-trip scenario test (which pins position AND piece type for each
-  board sent) needed no edits beyond the move-format updates.
-- Move send: `PusherApplication.toServerMoveString` produces the 7-char
-  format (origin 0–1, destination 5–6, three spaces between — assumed
-  padding, docs/RULES.md open question 1) and `communicateMove` sends and
-  logs it. `parseMove` is unchanged (accepts the 7-char layout plus the
-  4-char compact form). The mock's and AppSession's response readers now
-  read 7-byte chunks, and the opponent moves in `PusherApplicationTest`/
-  `RepetitionTest` go through `MockPusherServer.serverMove`, so every
-  app-level test speaks the confirmed protocol.
-- RULES.md: items 1–4 confirmed as implemented (Q4 with the code
-  verification — the mirror-square friendly Pusher is the only setup that
-  enables a Pushee move for all three destination types; the
-  `hasAdjacentPusher` helper exists but is unused), item 5 confirmed with
-  the H8→A1 correction, item 6 partly confirmed (7-char send; padding and
-  framing remain assumptions), item 7 resolved with the strict-decrease
-  proof (Φ = total remaining forward distance; every ply decreases Φ by ≥
-  1; Φ₀ ≤ 70 for the standard 5+5 setup, so the T10 300-ply cap is
-  unreachable under the rules). The open-questions list is down to two
-  sub-questions: the three padding characters (assumed spaces) and the
-  framing (assumed newline-terminated).
-- Red/green: with the mock encoding the confirmed order and 7-byte reads,
-  exactly the 10 app-level tests failed (boards came back as the 180°
-  rotation; 4-char responses never completed a 7-byte read) while all 101
-  engine/board tests stayed green. After the `placeBoard`/`communicateMove`
-  flip the full suite is green ×2.
-- New tests: 3 (suite 108 → 111).
+  board sent) needed no edits beyond the format updates.
+- Move send: **reverted to the initial 4-char format after the server
+  owner's follow-up** ("the initial format was the right one"). The first
+  pass — built on the earlier "Didn't the server expect 7 chars?" — had
+  switched `communicateMove` to a 7-char `toServerMoveString` (origin 0–1,
+  destination 5–6, three spaces between) with two format tests; all of that
+  was removed and `communicateMove` sends `move.toString()` again. The
+  `parseMove` leniency (accepts 4-char + the legacy 7-char layout) is
+  unchanged, so a server that sends the 7-char layout is still parsed.
+- RULES.md: items 1–4 confirmed as implemented (item 1 explicitly —
+  "both pieces can win"; Q4 with the code verification — the mirror-square
+  friendly Pusher is the only setup that enables a Pushee move for all three
+  destination types; the `hasAdjacentPusher` helper exists but is unused),
+  item 5 confirmed with the H8→A1 correction, item 6 confirmed (initial
+  4-char format; framing remains an assumption), item 7 resolved with the
+  strict-decrease proof (Φ = total remaining forward distance; every ply
+  decreases Φ by ≥ 1; Φ₀ ≤ 70 for the standard 5+5 setup, so the T10 300-ply
+  cap is unreachable under the rules). The open-questions list is down to
+  one: the framing (assumed newline-terminated).
+- Red/green: with the mock encoding the confirmed order, exactly the 10
+  app-level tests failed (boards came back as the 180° rotation) while all
+  101 engine/board tests stayed green. After the `placeBoard` flip the full
+  suite was green ×2 at 111 tests; after the move-format revert it is green
+  ×2 at 109.
+- New tests: 1 kept (board orientation; suite 108 → 109 — the two
+  move-format tests were added in the first pass and removed with the
+  revert).
 
 ---
 

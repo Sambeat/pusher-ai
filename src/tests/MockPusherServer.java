@@ -22,8 +22,7 @@ import java.util.List;
  * <ul>
  *   <li>'1' + the 64-int board text — new game, the AI plays White;</li>
  *   <li>'2' + the 64-int board text — new game, the AI plays Black;</li>
- *   <li>'3' + the opponent's move in the server's 7-char format
- *       (e.g. "D2   E3", see {@link #serverMove(String)});</li>
+ *   <li>'3' + the opponent's 4-char move (e.g. "D2E3");</li>
  *   <li>'4' — the client answers with a random legal move (no payload).</li>
  * </ul>
  *
@@ -34,9 +33,9 @@ import java.util.List;
  * split across several TCP writes (each flushed, with a gap between them),
  * which the client's pre-T9 input.available()-based reads could not survive.
  *
- * Client responses are the 7-char move strings the app writes raw (no
+ * Client responses are the 4-char move strings the app writes raw (no
  * newline, see PusherApplication.communicateMove). This server reads them as
- * 7-byte chunks and records every response, in order, for assertions.
+ * 4-byte chunks and records every response, in order, for assertions.
  */
 public class MockPusherServer implements AutoCloseable {
 
@@ -98,22 +97,9 @@ public class MockPusherServer implements AutoCloseable {
         send((byte) '2', boardText(board));
     }
 
-    /** The opponent's move in the server's 7-char format (e.g. "D2   E3"). */
-    public void sendOpponentMove(String moveText) {
-        send((byte) '3', moveText);
-    }
-
-    /**
-     * Encode a move in the server's 7-char format (docs/RULES.md item 6):
-     * the 4-char "D2E3" becomes "D2   E3" — origin at indexes 0-1, destination
-     * at indexes 5-6, three padding spaces between (the app sends the same
-     * padding; assumed, see the doc's open questions).
-     *
-     * @param fourCharMove The move in compact "D2E3" form.
-     * @return the 7-char server form.
-     */
-    public static String serverMove(String fourCharMove) {
-        return fourCharMove.substring(0, 2) + "   " + fourCharMove.substring(2, 4);
+    /** The opponent's move (4-char format, e.g. "D2E3"). */
+    public void sendOpponentMove(String fourCharMove) {
+        send((byte) '3', fourCharMove);
     }
 
     /** Command '4': the client answers with a random legal move. */
@@ -194,12 +180,11 @@ public class MockPusherServer implements AutoCloseable {
     }
 
     private void readResponses(InputStream in) throws IOException {
-        //One response is one 7-char move string (T11, docs/RULES.md item 6).
-        StringBuilder pending = new StringBuilder(7);
+        StringBuilder pending = new StringBuilder(4);
         int b;
         while ((b = in.read()) != -1) {
             pending.append((char) b);
-            if (pending.length() == 7) {
+            if (pending.length() == 4) {
                 synchronized (responses) {
                     responses.add(pending.toString());
                     pending.setLength(0);
@@ -275,8 +260,8 @@ public class MockPusherServer implements AutoCloseable {
     }
 
     /** The opponent's move split across writes (T9). */
-    public void sendOpponentMoveFragmented(String moveText,
+    public void sendOpponentMoveFragmented(String fourCharMove,
                                            int fragmentCount, long gapMillis) {
-        sendFragmented((byte) '3', moveText, fragmentCount, gapMillis);
+        sendFragmented((byte) '3', fourCharMove, fragmentCount, gapMillis);
     }
 }

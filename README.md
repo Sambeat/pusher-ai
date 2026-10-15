@@ -45,6 +45,5 @@ java -cp out client.PusherApplication
 ```
 
 On connect it reads the protocol commands (side to play, a 64-int board, the
-opponent's moves) from `localhost:8888` and writes back its 7-char move
-strings (the server format: origin at indexes 0-1, destination at 5-6). The
+opponent's moves) from `localhost:8888` and writes back its 4-char moves. The
 server address is currently hard-coded to `localhost:8888`.

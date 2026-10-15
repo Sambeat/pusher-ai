@@ -176,15 +176,15 @@ public class RepetitionTest {
             //opponent's): after the second exchange the count reaches the
             //cap of 4 and must log a warning — and the third exchange must
             //still be answered (keeping play going, no draw declared).
-            session.sendOpponentMove(MockPusherServer.serverMove("H8H7"));
+            session.sendOpponentMove("H8H7");
             String white2 = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
             assertNotNull(white2);
 
-            session.sendOpponentMove(MockPusherServer.serverMove("H7H6"));
+            session.sendOpponentMove("H7H6");
             String white3 = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
             assertNotNull(white3);
 
-            session.sendOpponentMove(MockPusherServer.serverMove("H6H5"));
+            session.sendOpponentMove("H6H5");
             String white4 = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
             assertNotNull("the app must keep playing past the ply cap",
                     white4);

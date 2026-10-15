@@ -47,14 +47,8 @@ public class PusherApplicationTest {
     /** Plenty of margin over GameTree.MAX_TIME_MILLIS (4950). */
     private static final long RESPONSE_TIMEOUT_MILLIS = 30_000;
 
-    /**
-     * The server's 7-char move format (T11, docs/RULES.md item 6): origin at
-     * indexes 0-1, destination at indexes 5-6; the three middle characters
-     * are padding (the app sends spaces; the fixed positions are what the
-     * format guarantees).
-     */
     private static final Pattern MOVE_FORMAT =
-            Pattern.compile("[A-H][1-8].{3}[A-H][1-8]");
+            Pattern.compile("[A-H][1-8][A-H][1-8]");
 
     //Game 1 board (row 0 = top = BLACK's goal row, column 0 = file A):
     //  White: Pusher D4 (3,3), Pusher F4 (3,5), Pushee E3 (2,4)
@@ -96,20 +90,20 @@ public class PusherApplicationTest {
             startApp(socket.getInputStream(), socket.getOutputStream());
             server.awaitConnection(RESPONSE_TIMEOUT_MILLIS);
 
-            //Scenario 1: '1' + full board -> a legal 7-char server move for White.
+            //Scenario 1: '1' + full board -> a legal 4-char move for White.
             server.sendNewGameWhite(gameOneBoard());
 
             String response = server.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
             assertNotNull("the app did not respond to '1' + board", response);
             assertTrue("response '" + response
-                    + "' is not a 7-char server move", MOVE_FORMAT.matcher(response).matches());
+                    + "' is not a 4-char move", MOVE_FORMAT.matcher(response).matches());
 
             //The board was built exactly as sent (position AND piece type).
             assertBoardMatches(gameOneBoard());
 
             //The response is in White's legal move list on the parsed board.
             assertEquals(Player.WHITE, board.getCurrentPlayer());
-            Move move = parseServerMove(response);
+            Move move = parseFourChar(response);
             assertTrue("response '" + response + "' is not a legal White move",
                     board.getAllLegalMovesQuick().contains(move));
             assertEquals(Player.WHITE,
@@ -121,12 +115,12 @@ public class PusherApplicationTest {
             String randomResponse = server.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
             assertNotNull("the app did not respond to '4'", randomResponse);
             assertTrue("random response '" + randomResponse
-                    + "' is not a 7-char server move",
+                    + "' is not a 4-char move",
                     MOVE_FORMAT.matcher(randomResponse).matches());
             assertTrue("random response '" + randomResponse
                     + "' is not a legal White move",
                     board.getAllLegalMovesQuick()
-                            .contains(parseServerMove(randomResponse)));
+                            .contains(parseFourChar(randomResponse)));
         }
     }
 
@@ -145,15 +139,15 @@ public class PusherApplicationTest {
             server.sendNewGameWhite(gameOneBoard());
             String whiteMove1 = server.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
             assertNotNull(whiteMove1);
-            Move m1 = parseServerMove(whiteMove1);
+            Move m1 = parseFourChar(whiteMove1);
 
             //The Black Pusher D8 moves straight ahead to D7 (empty square).
-            server.sendOpponentMove(MockPusherServer.serverMove("D8D7"));
+            server.sendOpponentMove("D8D7");
             String whiteMove2 = server.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
             assertNotNull("the app did not respond to '3' + opponent move",
                     whiteMove2);
             assertTrue("response '" + whiteMove2
-                    + "' is not a 7-char server move", MOVE_FORMAT.matcher(whiteMove2).matches());
+                    + "' is not a 4-char move", MOVE_FORMAT.matcher(whiteMove2).matches());
 
             //The app applied the opponent's move to the singleton board:
             //the Black Pusher is on D7 and D8 is empty.
@@ -181,7 +175,7 @@ public class PusherApplicationTest {
             assertEquals(Player.WHITE, board.getCurrentPlayer());
 
             //The second response is a legal White move.
-            Move m2 = parseServerMove(whiteMove2);
+            Move m2 = parseFourChar(whiteMove2);
             assertTrue("second response '" + whiteMove2
                     + "' is not a legal White move",
                     board.getAllLegalMovesQuick().contains(m2));
@@ -200,7 +194,7 @@ public class PusherApplicationTest {
             //non-trivial (two plies, a pending, not-yet-applied White move).
             session.sendNewGameWhite(gameOneBoard());
             assertNotNull(session.waitForResponse(RESPONSE_TIMEOUT_MILLIS));
-            session.sendOpponentMove(MockPusherServer.serverMove("D8D7"));
+            session.sendOpponentMove("D8D7");
             assertNotNull(session.waitForResponse(RESPONSE_TIMEOUT_MILLIS));
 
             //Game 2: '2' + a new, different board. The '2' handler sends no
@@ -217,14 +211,14 @@ public class PusherApplicationTest {
 
             //The opponent (White) plays F3E4. If the app replayed game 1's
             //pending move here, the state below would be corrupted.
-            session.sendOpponentMove(MockPusherServer.serverMove("F3E4"));
+            session.sendOpponentMove("F3E4");
             String blackMove = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
 
             //The board holds exactly game 2's pieces with F3E4 applied: the
             //White Pusher is on E4, F3 is empty, every other piece where it
             //was. A replayed game 1 move would have moved (or killed) one of
             //these pieces.
-            assertBoardMatches(applyMove(second, MockPusherServer.serverMove("F3E4")));
+            assertBoardMatches(applyMove(second, "F3E4"));
             assertEquals(1, board.getTurnNumber());
             assertEquals(Player.BLACK, board.getCurrentPlayer());
 
@@ -232,9 +226,9 @@ public class PusherApplicationTest {
             assertNotNull("the app did not answer game 2's first opponent move",
                     blackMove);
             assertTrue("response '" + blackMove
-                    + "' is not a 7-char server move", MOVE_FORMAT.matcher(blackMove).matches());
+                    + "' is not a 4-char move", MOVE_FORMAT.matcher(blackMove).matches());
             assertTrue("response '" + blackMove + "' is not a legal Black move",
-                    board.getAllLegalMovesQuick().contains(parseServerMove(blackMove)));
+                    board.getAllLegalMovesQuick().contains(parseFourChar(blackMove)));
         }
     }
 
@@ -247,7 +241,7 @@ public class PusherApplicationTest {
             session.sendNewGameWhite(gameOneBoard());
             String whiteMove = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
             assertNotNull(whiteMove);
-            Move m1 = parseServerMove(whiteMove);
+            Move m1 = parseFourChar(whiteMove);
 
             //Scenario 4: a garbage '3' payload. The app logs
             //("Could not parse opponent move: [XYZ]"), sends nothing, and the
@@ -260,12 +254,12 @@ public class PusherApplicationTest {
             //D8D7 is legal regardless of the app's first move (it never
             //reaches the Black pieces' row 6-7 neighborhood... the White
             //piece it moved lands on row 4).
-            session.sendOpponentMove(MockPusherServer.serverMove("D8D7"));
+            session.sendOpponentMove("D8D7");
             String whiteMove2 = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
             assertNotNull("the app did not recover after a garbage move",
                     whiteMove2);
             assertTrue("response '" + whiteMove2
-                    + "' is not a 7-char server move", MOVE_FORMAT.matcher(whiteMove2).matches());
+                    + "' is not a 4-char move", MOVE_FORMAT.matcher(whiteMove2).matches());
 
             //Board state: game 1's pending White move was applied when the
             //garbage '3' arrived (the app applies its pending move before
@@ -287,7 +281,7 @@ public class PusherApplicationTest {
             //And the response is a legal White move on that state.
             assertTrue("post-garbage response '" + whiteMove2
                     + "' is not a legal White move",
-                    board.getAllLegalMovesQuick().contains(parseServerMove(whiteMove2)));
+                    board.getAllLegalMovesQuick().contains(parseFourChar(whiteMove2)));
         }
     }
 
@@ -314,24 +308,24 @@ public class PusherApplicationTest {
             assertNotNull("the app did not respond to a board split across 3 writes",
                     response);
             assertTrue("response '" + response
-                    + "' is not a 7-char server move", MOVE_FORMAT.matcher(response).matches());
+                    + "' is not a 4-char move", MOVE_FORMAT.matcher(response).matches());
 
             //The full board was reassembled (position AND piece type).
             assertBoardMatches(gameOneBoard());
             assertEquals(Player.WHITE, board.getCurrentPlayer());
             assertTrue("response '" + response + "' is not a legal White move",
-                    board.getAllLegalMovesQuick().contains(parseServerMove(response)));
+                    board.getAllLegalMovesQuick().contains(parseFourChar(response)));
 
             //T9 (c): a normal single-shot command right after the fragmented
             //one still works: the framing left the stream in sync.
-            server.sendOpponentMove(MockPusherServer.serverMove("D8D7"));
+            server.sendOpponentMove("D8D7");
             String response2 = server.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
             assertNotNull("the app desynced after the fragmented board", response2);
             assertTrue("post-fragment response '" + response2
-                    + "' is not a 7-char server move", MOVE_FORMAT.matcher(response2).matches());
+                    + "' is not a 4-char move", MOVE_FORMAT.matcher(response2).matches());
             assertTrue("post-fragment response '" + response2
                     + "' is not a legal White move",
-                    board.getAllLegalMovesQuick().contains(parseServerMove(response2)));
+                    board.getAllLegalMovesQuick().contains(parseFourChar(response2)));
         }
     }
 
@@ -372,23 +366,23 @@ public class PusherApplicationTest {
 
             //The loop survived: the next valid command is still handled, with
             //the pending move applied first (the T2 '3' contract).
-            session.sendOpponentMove(MockPusherServer.serverMove("D8D7"));
+            session.sendOpponentMove("D8D7");
             String response = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
             assertNotNull("the app did not recover after a truncated board", response);
             assertTrue("response '" + response
-                    + "' is not a 7-char server move", MOVE_FORMAT.matcher(response).matches());
+                    + "' is not a 4-char move", MOVE_FORMAT.matcher(response).matches());
 
             //gameOneBoard's pieces with the pending move and D8D7 applied in
             //order; a partial board build would have misplaced or dropped
             //pieces (Black's pieces sit past token 30 in the confirmed
             //top-left-first order).
-            int[][] expected = applyMove(applyMove(gameOneBoard(), firstMove), MockPusherServer.serverMove("D8D7"));
+            int[][] expected = applyMove(applyMove(gameOneBoard(), firstMove), "D8D7");
             assertBoardMatches(expected);
             assertEquals(2, board.getTurnNumber());
             assertEquals(Player.WHITE, board.getCurrentPlayer());
             assertTrue("post-rejection response '" + response
                     + "' is not a legal White move",
-                    board.getAllLegalMovesQuick().contains(parseServerMove(response)));
+                    board.getAllLegalMovesQuick().contains(parseFourChar(response)));
         }
     }
 
@@ -403,10 +397,10 @@ public class PusherApplicationTest {
             String response = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
             assertNotNull("the app did not respond to a single-shot board", response);
             assertTrue("response '" + response
-                    + "' is not a 7-char server move", MOVE_FORMAT.matcher(response).matches());
+                    + "' is not a 4-char move", MOVE_FORMAT.matcher(response).matches());
             assertBoardMatches(gameOneBoard());
             assertTrue("response '" + response + "' is not a legal White move",
-                    board.getAllLegalMovesQuick().contains(parseServerMove(response)));
+                    board.getAllLegalMovesQuick().contains(parseFourChar(response)));
         }
     }
 
@@ -495,62 +489,18 @@ public class PusherApplicationTest {
         }
     }
 
-    /**
-     * T11: the app's responses use the server's 7-char move format: origin at
-     * indexes 0-1, destination at indexes 5-6 (docs/RULES.md item 6). The
-     * pre-T11 app sent the 4-char compact form, which the server does not
-     * expect.
-     */
-    @Test
-    public void appRespondsWithSevenCharServerMoves() throws Exception {
-        final GameBoard board = GameBoard.getInstance();
-
-        try (AppSession session = new AppSession()) {
-            session.sendNewGameWhite(gameOneBoard());
-            String response = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
-            assertNotNull("the app did not respond to '1' + board", response);
-            assertEquals("the server expects 7-char moves, got '" + response + "'",
-                    7, response.length());
-            assertTrue("response '" + response
-                    + "' is not a 7-char server move",
-                    MOVE_FORMAT.matcher(response).matches());
-            assertTrue("response '" + response + "' is not a legal White move",
-                    board.getAllLegalMovesQuick()
-                            .contains(parseServerMove(response)));
-        }
-    }
-
-    /**
-     * T11: the 7-char encoding — "D2   E3" for D2 -> E3: origin at indexes
-     * 0-1, destination at indexes 5-6, three padding spaces between (assumed
-     * padding, docs/RULES.md open questions).
-     */
-    @Test
-    public void serverMoveStringPutsOriginAndDestinationAtTheProtocolIndexes() {
-        GameBoard board = GameBoard.getInstance();
-        Move d2ToE3 = new Move(board.getSquare(1, 3), board.getSquare(2, 4));
-        String s = PusherApplication.toServerMoveString(d2ToE3);
-        assertEquals("D2   E3", s);
-        assertEquals(7, s.length());
-        assertEquals('D', s.charAt(0));
-        assertEquals('2', s.charAt(1));
-        assertEquals('E', s.charAt(5));
-        assertEquals('3', s.charAt(6));
-    }
-
     //--- helpers -------------------------------------------------------------
 
     /**
-     * The 7-char server move format the app sends and receives: "D2   E3" =
-     * from D2 to E3 (column letter, row digit 1-8 with 1 = row 0), origin at
-     * indexes 0-1 and destination at indexes 5-6 (T11, docs/RULES.md item 6).
+     * The 4-char move format the app sends: "D2E3" = from D2 to E3
+     * (column letter, row digit 1-8 with 1 = row 0).
      */
-    private static Move parseServerMove(String s) {
+    private static Move parseFourChar(String s) {
         GameBoard board = GameBoard.getInstance();
         int originRow = s.charAt(1) - '1';
         int originColumn = s.charAt(0) - 'A';
-        int destRow = s.charAt(6) - '1';
-        int destColumn = s.charAt(5) - 'A';
+        int destRow = s.charAt(3) - '1';
+        int destColumn = s.charAt(2) - 'A';
         return new Move(board.getSquare(originRow, originColumn),
                 board.getSquare(destRow, destColumn));
     }
@@ -607,15 +557,15 @@ public class PusherApplicationTest {
         return sb.toString();
     }
 
-    /** A copy of the board with the 7-char server move applied. */
-    private static int[][] applyMove(int[][] board, String serverMove) {
+    /** A copy of the board with the 4-char move applied. */
+    private static int[][] applyMove(int[][] board, String fourCharMove) {
         int[][] copy = new int[8][8];
         for (int row = 0; row < 8; row++)
             System.arraycopy(board[row], 0, copy[row], 0, 8);
-        int originRow = serverMove.charAt(1) - '1';
-        int originColumn = serverMove.charAt(0) - 'A';
-        int destRow = serverMove.charAt(6) - '1';
-        int destColumn = serverMove.charAt(5) - 'A';
+        int originRow = fourCharMove.charAt(1) - '1';
+        int originColumn = fourCharMove.charAt(0) - 'A';
+        int destRow = fourCharMove.charAt(3) - '1';
+        int destColumn = fourCharMove.charAt(2) - 'A';
         copy[destRow][destColumn] = copy[originRow][originColumn];
         copy[originRow][originColumn] = 0;
         return copy;
@@ -683,7 +633,7 @@ public class PusherApplicationTest {
     /**
      * Drive PusherApplication.run with in-memory piped streams (no socket):
      * the test writes protocol commands into the app's input and reads the
-     * app's 7-char move responses from its output. Package-visible so the
+     * app's 4-byte move responses from its output. Package-visible so the
      * T10 app-level test (tests.RepetitionTest) can reuse it.
      */
     static class AppSession implements AutoCloseable {
@@ -736,8 +686,8 @@ public class PusherApplicationTest {
             send((byte) '2', MockPusherServer.boardText(board));
         }
 
-        void sendOpponentMove(String moveText) throws IOException {
-            send((byte) '3', moveText);
+        void sendOpponentMove(String fourCharMove) throws IOException {
+            send((byte) '3', fourCharMove);
         }
 
         String waitForResponse(long timeoutMillis) throws InterruptedException {
@@ -797,13 +747,12 @@ public class PusherApplicationTest {
         }
 
         private void readResponses() {
-            //One response is one 7-char move string (T11, docs/RULES.md 6).
-            StringBuilder pending = new StringBuilder(7);
+            StringBuilder pending = new StringBuilder(4);
             try {
                 int b;
                 while ((b = fromApp.read()) != -1) {
                     pending.append((char) b);
-                    if (pending.length() == 7) {
+                    if (pending.length() == 4) {
                         synchronized (responses) {
                             responses.add(pending.toString());
                             pending.setLength(0);

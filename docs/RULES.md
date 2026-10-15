@@ -7,10 +7,11 @@ and **whether it is confirmed against the server**.
 **Status: confirmed against the server owner (T11).** Items 1–4 are
 confirmed exactly as implemented. Item 5 was confirmed with a correction:
 the board text runs from the top-left corner — the client was placing the
-1st token at the bottom-right, and T11 fixed the placement. Item 6 is partly
-confirmed: the server expects a 7-char move string, which the client now
-sends; the padding characters and the message framing remain assumptions
-(see the open questions below). Item 7 (endless play) is resolved:
+1st token at the bottom-right, and T11 fixed the placement. Item 6 is
+confirmed: the client's initial 4-char move format is the right one (T11
+briefly switched it to a 7-char layout and reverted after the server owner's
+follow-up); the message framing remains an assumption (see the open
+questions below). Item 7 (endless play) is resolved:
 under the confirmed rules, repetitions are impossible and every game ends.
 If a future answer changes a rule, implement it as a follow-up task (do not
 guess) and update this doc together with `tests.RulesContractTest`, which
@@ -41,10 +42,11 @@ increasing rows, BLACK toward decreasing rows.
   (terminal scores `±(MAX/MIN ∓ turnNumber)`); the board model alone only
   provides `winner()`.
 
-**Confirmed against the server?** YES (server owner, T11): any piece —
-Pusher or Pushee — reaching the enemy goal row wins, and the
-BLACK-wins-the-tie rule stands (the tie position is unreachable in play —
-see above; `RulesContractTest` still pins it for the by-hand case).
+**Confirmed against the server?** YES (server owner, T11, plus the
+follow-up "both pieces can win"): any piece — Pusher or Pushee — reaching
+the enemy goal row wins, and the BLACK-wins-the-tie rule stands (the tie
+position is unreachable in play — see above; `RulesContractTest` still pins
+it for the by-hand case).
 
 ## 2. Captures
 
@@ -137,27 +139,27 @@ setup enables Pushee movement anywhere in the code (the never-used
   and all other game state are left untouched, and the client waits for the
   next command instead of playing on a partial board.
 - Move payload (after `'3'`): also read to the end of the line (T9; the
-  parser itself is unchanged — `PusherApplication.parseMove`). The server's
-  format is 7 characters (server-confirmed, T11): the origin
-  `colLetter rowDigit` at indices 0–1 and the destination at indices 5–6, with
-  three characters in between (assumed to be spaces, e.g. `D2   E3` = from D2
-  to E3; columns A–H, row digits 1–8 with 1 = top row 0 and 8 = bottom row 7).
-  The parser accepts this 7-char layout plus a 4-char compact form (`D2E3`)
-  for convenience.
-- Client responses: the 7-character move string in the server format (T11 —
-  the pre-T11 client sent the 4-char compact form, which the server does not
-  expect), written raw (no newline, no length prefix) and flushed; nothing is
-  sent when the client has no legal move.
+  parser itself is unchanged — `PusherApplication.parseMove`). The client's
+  format is 4 characters
+  `colLetter rowDigit colLetter rowDigit` (e.g. `D2E3` = from D2 to E3; columns
+  A–H, row digits 1–8 with 1 = top row 0 and 8 = bottom row 7) — **confirmed
+  as the right format by the server owner** (the initial format; T11 briefly
+  switched the send to a 7-char layout and reverted it after the follow-up).
+  The parser also accepts a legacy layout of ≥ 7 characters with the origin
+  at indices 0–1 and the destination at indices 5–6 (same letter/digit
+  pairs).
+- Client responses: the 4-character move string, written raw (no newline, no
+  length prefix) and flushed; nothing is sent when the client has no legal
+  move.
 
-**Confirmed against the server?** PARTLY (T11).
+**Confirmed against the server?** PARTLY (T11 + follow-up).
 **Board text:** YES — the 64 integers start at the top-left corner (A1) and
 run left-to-right, top-to-bottom, exactly 64 of them; the pre-T11 client
 assumed the opposite corner first and was corrected.
-**Move text:** YES — the server expects a 7-char move string (origin at
-indices 0–1, destination at indices 5–6), which the client now sends
-(`PusherApplication.toServerMoveString`). Two sub-questions remain unconfirmed: what the three middle characters are (the client sends three
-spaces — both the server and the client's own parser read only the fixed
-positions, so the padding appears to be a don't-care), and the framing.
+**Move text:** YES — the client's initial 4-char format (`D2E3`) is the
+right one (server owner follow-up: "the initial format was the right one";
+T11's 7-char send was reverted). The parser's legacy 7-char acceptance is
+unchanged.
 **Framing:** still unconfirmed — T9's **newline-terminated messages**
 assumption stands (payload read to `\n`/`\r\n`, board payload validated as 64
 ints in 0..4, resync-on-invalid). A server that sends unterminated chunks
@@ -167,21 +169,18 @@ revisit.
 
 ## Open questions (for the server owner)
 
-T11 closed five of the seven original questions (see the resolved list
-below). Two sub-questions remain:
+T11 + follow-up closed six of the seven original questions (see the resolved
+list below). One remains:
 
-1. **Move-string padding:** what are the three middle characters of the
-   7-char move string? The client sends three spaces (both the server and
-   the client's own parser read only indices 0–1 and 5–6, so the padding
-   appears to be a don't-care) — please confirm.
-2. **Message framing:** are messages newline-terminated (T9's assumption),
+1. **Message framing:** are messages newline-terminated (T9's assumption),
    length-prefixed, or raw chunks?
 
 ## Resolved in T11 (server owner's answers)
 
 1. **Win condition:** any piece (Pusher or Pushee) on the enemy goal row
-   wins. The BLACK-wins-the-tie rule stands, but a double goal-row position
-   is impossible in play: players alternate, and the first piece to land on
+   wins — explicitly confirmed in the follow-up ("both pieces can win").
+   The BLACK-wins-the-tie rule stands, but a double goal-row position is
+   impossible in play: players alternate, and the first piece to land on
    the enemy goal row ends the game immediately.
 2. **Captures:** they exist, and are diagonal-only (no straight-ahead
    capture).
@@ -193,9 +192,10 @@ below). Two sub-questions remain:
 5. **Board text:** 64 integers, from top-left (A1) to bottom-right (H8),
    left-to-right, top-to-bottom. The pre-T11 client started at H8 — the
    exact 180° rotation — and was corrected.
-6. **Move text:** the server expects a 7-char move string (origin at
-   indices 0–1, destination at indices 5–6), which the client now sends.
-   The padding characters and the framing remain open (see above).
+6. **Move text:** the client's initial 4-char format (`D2E3`) is the right
+   one (follow-up: "the initial format was the right one"; T11 briefly sent
+   a 7-char layout and reverted it). The parser keeps accepting the legacy
+   7-char layout as well. The framing remains open (see above).
 7. **Endless play — impossible under the confirmed rules.** The owner's
    intuition ("you can basically only move forward and when you reach the
    end of the board you win") is provably complete: every move advances
