@@ -55,7 +55,7 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 (if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
 ./build.sh test
-# Expected: OK (103 tests). GameTreeTest takes ~5 s (real time-limited searches);
+# Expected: OK (114 tests). GameTreeTest takes ~5 s (real time-limited searches);
 # PusherApplicationTest drives full-budget searches (a few seconds).
 # (Count history: 42 at T1, +20 from T5's RulesContractTest, +2 from T7's
 # BenchTest, +3 from T3's QuiescenceTest, +14 from T4's ThreatEvalTest,
@@ -69,7 +69,11 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 # first pass were reverted after the server owner confirmed the initial
 # 4-char format),
 # -6 from T12: T9's framing tests removed with the newline-framing revert
-# (the wire stays unframed per the server owner).)
+# (the wire stays unframed per the server owner),
+# +6 from T13 Part A (AspirationPvsTest: exact-value, narrow-window,
+# retry, cutoff, disable-flag, production-path tests),
+# +5 from T13 Part B (PVS: exact-value at every depth, re-search fires,
+# node reduction, TT flag consistency, on/off determinism).)
 ```
 JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
 sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
@@ -1177,6 +1181,74 @@ for subtle value errors.
   The 2000 ms avgMsPerMove exceeds the 20% band only on the forced-win bench line
   (the widening artifact above); on the full board it is flat. Part B (PVS) is the
   expected source of the remaining depth and of keeping the ms-per-move in band.
+
+#### Part B Findings (PVS landed; T13 complete)
+
+- **Implementation:** the `alphaBeta` child loop (the 6-argument overload) is now
+  PVS: the first child (the best-ordered move — the TT best move, or the first
+  shuffled move at level 1) is searched with the full window; every later child
+  with a zero-width null window (max node: `(alpha, alpha + 1)`, min node:
+  `(beta - 1, beta)`); a violation (score > alpha at a max node, score < beta at
+  a min node) triggers the immediate full-window fail-high re-search, which
+  reuses the already-applied move (the null-window search undid all of its own
+  descendants) and whose RE-SEARCHED score is the one used by the unchanged
+  update/cutoff below. Quiescence (no child loop at depth 0), the repetition
+  penalty, the time check, and the TT store (final alpha/beta after any
+  re-search) are untouched. A `pvsEnabled` flag (default on) + 7-argument
+  constructor for the determinism check, analogous to T6's TT disable; hooks:
+  `getPvsResearched()` (fail-high re-search count) and `probeTT(hash, turn)`
+  (direct TT probe for the flag-consistency test).
+- **Why the move-identity test is restricted to unique-best-move positions:**
+  PVS changes which nodes are visited, hence when each node's shuffle consumes
+  the seeded `Random`; equally-valued moves can be chosen differently on/off
+  (defaultStart at depth 3 picks a different tied move per seed, on AND off).
+  So acceptance 7 runs five positions whose depth-3 best move is unique in
+  value (verified across 5 seeds × on/off); score equality (acceptance 1) is
+  unrestricted and holds on every position, including the tied ones.
+- **Acceptance 2's literal scenario (quiet first child, capture second) cannot
+  occur at a fresh root under T6's ordering** (captures are always ordered
+  before quiet moves). The 'captureRace' position realizes the essential case:
+  the best-ordered child (the MVV-LVA capture C5D6, worth ~2) is NOT the best
+  move; the true best move is the other capture (E6D7, a depth-3 forced win)
+  ordered second, found only via the null-window violation + re-search. Pinned:
+  chosen move == the pre-PVS engine's, is a capture, and the re-search count is
+  > 0.
+- **Bench, `--games 10 --budget 2000 --seed 42`:**
+  `{whiteWins:5, blackWins:5, avgPlies:13.00, avgMaxDepth:13.00,
+  avgMsPerMove:~80}` vs. Part A's ~92: **avgMsPerMove −13%** (the forced-win
+  level's widening retries got cheaper: each doubled-margin retry is now a
+  PVS-pruned search). Same winners/plies/depth — the bench's game-theoretic
+  content is unchanged. The 14-depth target is unreachable on this board (the
+  13-ply forced win caps it, as in Part A). Determinism: two same-seed runs are
+  identical (winners/plies/depths).
+- **Full board (8 Pushers + 8 Pushees per side, 4950 ms, VisualGame seed 42):**
+  max depth 9 in both post-PVS runs — the observed band is 9–10 (pre-T13 ~9,
+  Part A 9, the pre-Part B baseline run 10): **no regression, and no clean
+  step to the 10–11 target.** Median depth 8 (unchanged). Games ended sooner:
+  48 and 43 plies (pre-Part B run: 56), and one post-PVS run was won by WHITE
+  (the others BLACK) — consistent with the pre-existing wall-clock sensitivity
+  of the iterative-deepening stop (the final interrupted level varies run to
+  run, pre-T13 as well), not new randomness.
+- **Node counts (TT off, full window, depth 4):** full board 1560 → 1447 (−7%).
+  On the small 7-piece capture position PVS is SLOWER (d3: 61 → 76, d4: 179 →
+  279): with small branching and many near-PV siblings, the re-search overhead
+  outweighs the null-window savings. PVS pays exactly where the plan expected
+  (bigger branching, deeper levels, the aspiration retry path) — hence the
+  ms-per-move win on the forced-win bench line despite no full-board depth
+  step.
+- **TT flags:** the root's child stores the same flag/score/depth (EXACT/−8/2
+  on 'tactical' at depth 3) with and without PVS: null-window searches store
+  only bounds, and the re-search (when it fires) replaces them with the exact
+  value, so the final store matches the pre-PVS one (pinned via `probeTT`).
+- **Interaction with Part A:** with PVS active, a narrow aspiration window no
+  longer reduces node count on the full board (full and narrow both hit 1447
+  at depth 4 — the null windows already prune), so Part A's narrow-window node
+  test now runs with PVS off on both trees (isolating the aspiration effect),
+  and its exact-value reference is now the true pre-T13 engine (aspiration and
+  PVS both off).
+- **Suite:** 109 → 114 (+5 Part B tests: exact value at every depth on 7
+  positions, re-search fires, node reduction, TT flag consistency, on/off
+  determinism). Green ×2.
 
 ---
 
