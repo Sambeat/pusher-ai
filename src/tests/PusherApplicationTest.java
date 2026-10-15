@@ -10,8 +10,6 @@ import game.Pushee;
 import game.Pusher;
 import org.junit.Test;
 
-import java.io.BufferedInputStream;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -285,204 +283,37 @@ public class PusherApplicationTest {
         }
     }
 
-    //--- T9: proper message framing ------------------------------------------
-
-    @Test
-    public void boardArrivingInThreeTcpFragmentsIsParsedCorrectly() throws Exception {
-        final GameBoard board = GameBoard.getInstance();
-
-        try (MockPusherServer server = new MockPusherServer();
-             Socket socket = new Socket("localhost", server.getPort())) {
-
-            startApp(socket.getInputStream(), socket.getOutputStream());
-            server.awaitConnection(RESPONSE_TIMEOUT_MILLIS);
-
-            //T9 (a): the '1' + 64-int board arrives in 3 separate flushed
-            //writes ~150 ms apart, so no read sees the whole message at once.
-            //The pre-T9 input.available()-based read built the board from
-            //whatever was buffered at that instant (a partial board, no
-            //response); the newline-terminated read must reassemble it.
-            server.sendNewGameWhiteFragmented(gameOneBoard(), 3, 150);
-
-            String response = server.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
-            assertNotNull("the app did not respond to a board split across 3 writes",
-                    response);
-            assertTrue("response '" + response
-                    + "' is not a 4-char move", MOVE_FORMAT.matcher(response).matches());
-
-            //The full board was reassembled (position AND piece type).
-            assertBoardMatches(gameOneBoard());
-            assertEquals(Player.WHITE, board.getCurrentPlayer());
-            assertTrue("response '" + response + "' is not a legal White move",
-                    board.getAllLegalMovesQuick().contains(parseFourChar(response)));
-
-            //T9 (c): a normal single-shot command right after the fragmented
-            //one still works: the framing left the stream in sync.
-            server.sendOpponentMove("D8D7");
-            String response2 = server.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
-            assertNotNull("the app desynced after the fragmented board", response2);
-            assertTrue("post-fragment response '" + response2
-                    + "' is not a 4-char move", MOVE_FORMAT.matcher(response2).matches());
-            assertTrue("post-fragment response '" + response2
-                    + "' is not a legal White move",
-                    board.getAllLegalMovesQuick().contains(parseFourChar(response2)));
-        }
-    }
-
-    @Test
-    public void truncatedBoardIsRejectedWithoutCorruptingTheBoard() throws Exception {
-        final GameBoard board = GameBoard.getInstance();
-
-        try (AppSession session = new AppSession()) {
-
-            //Establish a valid game first, so "no corruption" has something
-            //to mean: the board holds gameOneBoard's six pieces.
-            session.sendNewGameWhite(gameOneBoard());
-            String firstMove = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
-            assertNotNull(firstMove);
-            assertBoardMatches(gameOneBoard());
-
-            //T9 (b): a new game whose board payload carries only 30 of the 64
-            //integers. The pre-T9 code placed the first 30 tokens and played
-            //on the partial board; the app must consume the bad line (resync),
-            //log it, touch nothing, and wait for the next command.
-            String[] tokens = MockPusherServer.boardText(gameOneBoard()).split(" ");
-            StringBuilder truncated = new StringBuilder();
-            for (int i = 0; i < 30; i++) {
-                if (i > 0)
-                    truncated.append(' ');
-                truncated.append(tokens[i]);
-            }
-            session.sendRaw((byte) '1', truncated.toString() + "\n");
-
-            assertNull("the app must not respond to a truncated board",
-                    session.waitForResponse(2000));
-
-            //The board is exactly as it was: the six original pieces, the
-            //pending first move still unapplied, turn state untouched.
-            assertBoardMatches(gameOneBoard());
-            assertEquals(0, board.getTurnNumber());
-            assertEquals(Player.WHITE, board.getCurrentPlayer());
-
-            //The loop survived: the next valid command is still handled, with
-            //the pending move applied first (the T2 '3' contract).
-            session.sendOpponentMove("D8D7");
-            String response = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
-            assertNotNull("the app did not recover after a truncated board", response);
-            assertTrue("response '" + response
-                    + "' is not a 4-char move", MOVE_FORMAT.matcher(response).matches());
-
-            //gameOneBoard's pieces with the pending move and D8D7 applied in
-            //order; a partial board build would have misplaced or dropped
-            //pieces (Black's pieces sit past token 30 in the confirmed
-            //top-left-first order).
-            int[][] expected = applyMove(applyMove(gameOneBoard(), firstMove), "D8D7");
-            assertBoardMatches(expected);
-            assertEquals(2, board.getTurnNumber());
-            assertEquals(Player.WHITE, board.getCurrentPlayer());
-            assertTrue("post-rejection response '" + response
-                    + "' is not a legal White move",
-                    board.getAllLegalMovesQuick().contains(parseFourChar(response)));
-        }
-    }
-
-    @Test
-    public void singleShotBoardStillWorks() throws Exception {
-        //T9 (c): the normal single-write, newline-terminated board send is
-        //unchanged by the framing work.
-        final GameBoard board = GameBoard.getInstance();
-
-        try (AppSession session = new AppSession()) {
-            session.sendNewGameWhite(gameOneBoard());
-            String response = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
-            assertNotNull("the app did not respond to a single-shot board", response);
-            assertTrue("response '" + response
-                    + "' is not a 4-char move", MOVE_FORMAT.matcher(response).matches());
-            assertBoardMatches(gameOneBoard());
-            assertTrue("response '" + response + "' is not a legal White move",
-                    board.getAllLegalMovesQuick().contains(parseFourChar(response)));
-        }
-    }
-
-    //--- T9: framing helpers (unit level) -------------------------------------
-
-    @Test
-    public void readLineStopsAtTheLineEndAndStripsWhitespace() throws IOException {
-        //Byte-by-byte delivery of a multi-word payload (what a split TCP
-        //read looks like to a byte-oriented reader).
-        assertEquals("0 0 0 0 1 2 3 4", PusherApplication.readLine(
-                new BufferedInputStream(new ByteArrayInputStream(
-                        "0 0 0 0 1 2 3 4\nmore".getBytes()))));
-        //CRLF terminates too, and the '\n' half of the pair is consumed so
-        //the outer command loop does not misread it.
-        assertEquals("D8D7", PusherApplication.readLine(
-                new BufferedInputStream(new ByteArrayInputStream(
-                        "D8D7\r\nmore".getBytes()))));
-        //Surrounding whitespace is stripped.
-        assertEquals("D8D7", PusherApplication.readLine(
-                new BufferedInputStream(new ByteArrayInputStream(
-                        "  D8D7  \n".getBytes()))));
-    }
-
-    @Test
-    public void readLineAtEofReturnsNullWithoutPayloadAndKeepsAPartialPayload()
-            throws IOException {
-        assertNull(PusherApplication.readLine(
-                new BufferedInputStream(new ByteArrayInputStream(new byte[0]))));
-        //A final message that lost its terminator at connection close is
-        //still returned: the loop exits on the next command read anyway.
-        assertEquals("0 1", PusherApplication.readLine(
-                new BufferedInputStream(new ByteArrayInputStream(
-                        "0 1".getBytes()))));
-    }
-
-    @Test
-    public void boardPayloadMustBeExactly64IntegersIn0To4() {
-        assertNotNull("64 valid tokens must parse",
-                PusherApplication.parseBoardPayload(boardString(64, "0")));
-        assertNull("30 tokens (the T9 truncated-board case)",
-                PusherApplication.parseBoardPayload(boardString(30, "0")));
-        assertNull("65 tokens",
-                PusherApplication.parseBoardPayload(boardString(65, "0")));
-        assertNull("value 5 is out of range",
-                PusherApplication.parseBoardPayload(boardString(64, "5")));
-        assertNull("negative value",
-                PusherApplication.parseBoardPayload(boardString(64, "-1")));
-        assertNull("non-numeric token",
-                PusherApplication.parseBoardPayload(boardString(64, "x")));
-        assertNull("null payload", PusherApplication.parseBoardPayload(null));
-        assertNull("empty payload", PusherApplication.parseBoardPayload(""));
-        assertNull("whitespace-only payload",
-                PusherApplication.parseBoardPayload("   "));
-    }
-
-    //--- T11: server-confirmed protocol -------------------------------------
+    //--- T12: pin the original board orientation -----------------------------
 
     /**
      * Marker board for the orientation test: a piece on each corner and two
-     * mid-board squares — all different token indexes in the confirmed
-     * top-left-first layout (docs/RULES.md item 5).
+     * mid-board squares — all different token indexes in the original wire
+     * order (docs/RULES.md item 5).
      */
     private static int[][] orientationMarkerBoard() {
         int[][] board = new int[8][8];
-        board[0][0] = 4; //token 0  -> A1, top-left
-        board[0][7] = 3; //token 7  -> H1, top-right
-        board[3][4] = 4; //token 28
-        board[4][3] = 2; //token 35
-        board[7][0] = 2; //token 56 -> A8, bottom-left
-        board[7][7] = 1; //token 63 -> H8, bottom-right
+        board[7][7] = 4; //token 0  -> H8, bottom-right (the 1st token)
+        board[7][0] = 3; //token 7  -> A8, bottom-left
+        board[4][3] = 4; //token 28
+        board[3][4] = 2; //token 35
+        board[0][7] = 2; //token 56 -> H1, top-right
+        board[0][0] = 1; //token 63 -> A1, top-left (the 64th token)
         return board;
     }
 
     /**
-     * T11: the board payload runs from the top-left corner (A1), left-to-right,
-     * top-to-bottom (server owner, docs/RULES.md item 5). The pre-T11 client
-     * started at H8 (bottom-right) — the exact 180° rotation. '2' (AI plays
-     * Black) builds the board without searching, so this is a pure
-     * wire-format round trip.
+     * Pins the ORIGINAL board-text orientation: tokens start at H8 (row 7,
+     * col 7), right-to-left, then bottom-to-top — the order the initial
+     * client used against the real server. The server owner confirmed this
+     * is the wire format (T12: "the old original code probably had the
+     * orientation right too"; "the parsing was already functioning
+     * correctly"). T11 briefly flipped the placement to top-left-first and
+     * T12 reverted it; this test makes sure the next change is deliberate.
+     * '2' (AI plays Black) builds the board without searching, so this is a
+     * pure wire-format round trip.
      */
     @Test
-    public void boardPayloadIsPlacedTopLeftFirst() throws Exception {
+    public void boardPayloadIsPlacedH8First() throws Exception {
         try (AppSession session = new AppSession()) {
             session.sendNewGameBlack(orientationMarkerBoard());
             awaitBoardMatches(orientationMarkerBoard());
@@ -544,17 +375,6 @@ public class PusherApplicationTest {
     private static boolean isPiece(Piece piece, Player owner, boolean pusher) {
         return piece.getOwner() == owner
                 && (pusher ? piece instanceof Pusher : piece instanceof Pushee);
-    }
-
-    /** A 64-int board payload: `count` zeros except the last token. */
-    private static String boardString(int count, String lastToken) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < count; i++) {
-            if (i > 0)
-                sb.append(' ');
-            sb.append(i == count - 1 ? lastToken : "0");
-        }
-        return sb.toString();
     }
 
     /** A copy of the board with the 4-char move applied. */
@@ -720,29 +540,16 @@ public class PusherApplicationTest {
         }
 
         /**
-         * Command byte + payload + '\n' in a single write: the assumed server
-         * framing is newline-terminated (T9, docs/RULES.md item 5). The pipe
-         * delivers the message in one shot here; fragmented delivery is
-         * exercised over a real socket by MockPusherServer.sendFragmented.
+         * Command byte and payload in a single write: the pipe delivers the
+         * whole message atomically, so the app's input.available()-based
+         * payload reads never see a partial message.
          */
         private void send(byte command, String payload) throws IOException {
-            byte[] full = new byte[2 + payload.length()];
+            byte[] full = new byte[1 + payload.length()];
             full[0] = command;
             for (int i = 0; i < payload.length(); i++)
                 full[1 + i] = (byte) payload.charAt(i);
-            full[full.length - 1] = '\n';
             toApp.write(full);
-            toApp.flush();
-        }
-
-        /**
-         * Send a command byte followed by a raw payload, with the framing
-         * left to the caller (T9: malformed-message tests such as the
-         * truncated board, which deliberately carries a partial line).
-         */
-        void sendRaw(byte command, String payload) throws IOException {
-            toApp.write(command);
-            toApp.write(payload.getBytes());
             toApp.flush();
         }
 

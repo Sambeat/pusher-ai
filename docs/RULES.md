@@ -4,18 +4,18 @@ Every rules assumption the engine makes, in one place. For each item this doc
 states **what the code does today** (with the class/method that implements it)
 and **whether it is confirmed against the server**.
 
-**Status: confirmed against the server owner (T11).** Items 1–4 are
-confirmed exactly as implemented. Item 5 was confirmed with a correction:
-the board text runs from the top-left corner — the client was placing the
-1st token at the bottom-right, and T11 fixed the placement. Item 6 is
-confirmed: the client's initial 4-char move format is the right one (T11
-briefly switched it to a 7-char layout and reverted after the server owner's
-follow-up); the message framing remains an assumption (see the open
-questions below). Item 7 (endless play) is resolved:
-under the confirmed rules, repetitions are impossible and every game ends.
-If a future answer changes a rule, implement it as a follow-up task (do not
-guess) and update this doc together with `tests.RulesContractTest`, which
-pins items 1–4 as characterization tests.
+**Status: fully confirmed against the server owner (T11 + follow-ups, T12).**
+Items 1–4 are confirmed exactly as implemented. Items 5–6 are confirmed as
+the ORIGINAL wire behavior, which the initial client used successfully
+against the real server: board tokens start at H8 (bottom-right), the move
+format is the initial 4-char one, and there is no message framing (the
+payload is read in the original available()-based read). T11 briefly
+deviated (top-left-first placement, 7-char send) and T12 restored the
+original wire behavior per the server owner's follow-up. Item 7 (endless
+play) is resolved: under the confirmed rules, repetitions are impossible
+and every game ends. If a future answer changes a rule, implement it as a
+follow-up task (do not guess) and update this doc together with
+`tests.RulesContractTest`, which pins items 1–4 as characterization tests.
 
 Coordinates used throughout: rows 0–7, row 0 = top = BLACK's goal row,
 row 7 = bottom = WHITE's goal row; columns 0–7 = files A–H. WHITE moves toward
@@ -120,27 +120,26 @@ setup enables Pushee movement anywhere in the code (the never-used
     opponent's move, the client applies its own previously sent move (if any)
     to the local board, then computes and sends its next move.
   - `'4'` — the client answers with a random legal move (no payload).
-- Board payload (after `'1'`/`'2'`): whitespace-separated integers, read to
-  the end of the message's line: **the client assumes newline-terminated
-  messages** (T9; the framing was never confirmed with the server owner, see
-  open question 6, and T9's plan fallback is newline-terminated). The payload
-  is read byte by byte until `\n` (or `\r\n`), so a message split or
-  coalesced across any number of TCP reads is reassembled exactly; the
-  pre-T9 `input.available()` + single-`read()` scheme silently truncated or
-  coalesced payloads. Tokens are placed starting at the top-left corner,
-  A1 (row 0, col 0), left-to-right, then top-to-bottom: the 1st token is A1,
-  the 8th is H1, the 9th is A2, …, the 64th is H8 (server-confirmed
-  orientation, T11 — the pre-T11 client started at H8 (bottom-right), the
-  exact 180° rotation, and was corrected). Values: `1` = Black Pushee,
-  `2` = Black Pusher, `3` = White Pushee, `4` = White Pusher, `0` = empty.
-  **Validated (T9):**
-  exactly 64 tokens, each an integer 0..4. Any other payload (30 ints, 65
-  ints, a `5`, a `x`, …) is logged, the line is consumed (resync), the board
-  and all other game state are left untouched, and the client waits for the
-  next command instead of playing on a partial board.
-- Move payload (after `'3'`): also read to the end of the line (T9; the
-  parser itself is unchanged — `PusherApplication.parseMove`). The client's
-  format is 4 characters
+- Board payload (after `'1'`/`'2'`): whitespace-separated integers. **No
+  framing** (confirmed by the server owner in T12: "if there were no
+  framing in place before, I wouldn't add one"): the server sends the
+  command byte followed by the payload, and the client reads the payload in
+  a single `input.available()`-based read — the original 2015 scheme. (T9
+  briefly replaced it with a newline-terminated read, an unconfirmed
+  assumption; T12 reverted it — a server that sends no newlines would hang
+  a newline-based reader, and the original read is what worked in
+  production.) Tokens are placed starting at H8 (row 7, col 7),
+  right-to-left, then bottom-to-top: the 1st token is H8, the 8th is A8,
+  the 9th is H7, …, the 64th is A1 — **the original order, confirmed as the
+  wire format in T12** ("the old original code probably had the orientation
+  right too": the initial client parsed the real server correctly. The
+  earlier "top-left to bottom-right" answer was a design preference, not a
+  fact; T11 briefly inverted the placement and T12 reverted it). Values:
+  `1` = Black Pushee, `2` = Black Pusher, `3` = White Pushee, `4` = White
+  Pusher, `0` = empty.
+- Move payload (after `'3'`): read the same way (one available()-based read,
+  no framing; the parser itself is unchanged — `PusherApplication.parseMove`).
+  The client's format is 4 characters
   `colLetter rowDigit colLetter rowDigit` (e.g. `D2E3` = from D2 to E3; columns
   A–H, row digits 1–8 with 1 = top row 0 and 8 = bottom row 7) — **confirmed
   as the right format by the server owner** (the initial format; T11 briefly
@@ -152,30 +151,25 @@ setup enables Pushee movement anywhere in the code (the never-used
   length prefix) and flushed; nothing is sent when the client has no legal
   move.
 
-**Confirmed against the server?** PARTLY (T11 + follow-up).
-**Board text:** YES — the 64 integers start at the top-left corner (A1) and
-run left-to-right, top-to-bottom, exactly 64 of them; the pre-T11 client
-assumed the opposite corner first and was corrected.
+**Confirmed against the server?** YES (T11 + follow-ups, T12).
+**Board text:** YES — the 64 integers start at H8 (bottom-right) and run
+right-to-left, bottom-to-top: the original order, which the initial client
+used successfully against the real server (server owner: "the old original
+code probably had the orientation right too").
 **Move text:** YES — the client's initial 4-char format (`D2E3`) is the
-right one (server owner follow-up: "the initial format was the right one";
-T11's 7-char send was reverted). The parser's legacy 7-char acceptance is
-unchanged.
-**Framing:** still unconfirmed — T9's **newline-terminated messages**
-assumption stands (payload read to `\n`/`\r\n`, board payload validated as 64
-ints in 0..4, resync-on-invalid). A server that sends unterminated chunks
-would hang the client at the first payload read; if the real framing turns
-out to be raw chunks, `PusherApplication.readLine` is the single place to
-revisit.
+right one ("the initial format was the right one"); T11's 7-char send was
+reverted. The parser's legacy 7-char acceptance is unchanged.
+**Framing:** confirmed to be **none** — no newline, no length prefix; the
+payload is read with the original available()-based read (T9's newline
+framing was reverted in T12: "if there were no framing in place before, I
+wouldn't add one").
 
 ## Open questions (for the server owner)
 
-T11 + follow-up closed six of the seven original questions (see the resolved
-list below). One remains:
+None — T11 + the follow-ups (T11 review, T12) closed all seven original
+questions; see the resolved list below.
 
-1. **Message framing:** are messages newline-terminated (T9's assumption),
-   length-prefixed, or raw chunks?
-
-## Resolved in T11 (server owner's answers)
+## Resolved (server owner's answers, T11 + follow-ups)
 
 1. **Win condition:** any piece (Pusher or Pushee) on the enemy goal row
    wins — explicitly confirmed in the follow-up ("both pieces can win").
@@ -189,13 +183,17 @@ list below). One remains:
    destination types (straight + both diagonals) — "mirror everywhere",
    as implemented. No other enabling setup exists in the code (T11
    verification, item 4 above).
-5. **Board text:** 64 integers, from top-left (A1) to bottom-right (H8),
-   left-to-right, top-to-bottom. The pre-T11 client started at H8 — the
-   exact 180° rotation — and was corrected.
+5. **Board text:** 64 integers, from H8 (bottom-right) to A1 (top-left),
+   right-to-left, bottom-to-top — the original order. The initial client
+   parsed the real server correctly, so its orientation is the wire format
+   (T12; the earlier "top-left to bottom-right" answer was a guess and was
+   retracted).
 6. **Move text:** the client's initial 4-char format (`D2E3`) is the right
-   one (follow-up: "the initial format was the right one"; T11 briefly sent
-   a 7-char layout and reverted it). The parser keeps accepting the legacy
-   7-char layout as well. The framing remains open (see above).
+   one ("the initial format was the right one"; T11 briefly sent a 7-char
+   layout and reverted it). The parser keeps accepting the legacy 7-char
+   layout as well. **Framing: none** — no newline, no length prefix; the
+   payload is read with the original available()-based read (T12; T9's
+   newline framing was reverted).
 7. **Endless play — impossible under the confirmed rules.** The owner's
    intuition ("you can basically only move forward and when you reach the
    end of the board you win") is provably complete: every move advances
