@@ -102,16 +102,24 @@ command in the protocol.
     opponent's move, the client applies its own previously sent move (if any)
     to the local board, then computes and sends its next move.
   - `'4'` — the client answers with a random legal move (no payload).
-- Board payload (after `'1'`/`'2'`): whitespace-separated integers, read as
-  "whatever bytes are currently available" (`input.available()` — no line or
-  length framing; see T9). Tokens are placed starting at H8 (row 7, col 7),
-  right-to-left, bottom-to-top: the 1st token is H8, the 8th is A8, the 9th is
-  H7, …, the 64th is A1. Values: `1` = Black Pushee, `2` = Black Pusher,
-  `3` = White Pushee, `4` = White Pusher, `0` = empty (ignored). There is no
-  validation: fewer than 64 tokens leaves the rest of the board empty, and an
-  unparseable token aborts the board build (caught; the loop continues with a
-  partial board).
-- Move payload (after `'3'`): the client's own format is 4 characters
+- Board payload (after `'1'`/`'2'`): whitespace-separated integers, read to
+  the end of the message's line: **the client assumes newline-terminated
+  messages** (T9; the framing was never confirmed with the server owner, see
+  open question 6, and T9's plan fallback is newline-terminated). The payload
+  is read byte by byte until `\n` (or `\r\n`), so a message split or
+  coalesced across any number of TCP reads is reassembled exactly; the
+  pre-T9 `input.available()` + single-`read()` scheme silently truncated or
+  coalesced payloads. Tokens are placed starting at H8 (row 7, col 7),
+  right-to-left, bottom-to-top: the 1st token is H8, the 8th is A8, the 9th
+  is H7, …, the 64th is A1. Values: `1` = Black Pushee, `2` = Black Pusher,
+  `3` = White Pushee, `4` = White Pusher, `0` = empty. **Validated (T9):**
+  exactly 64 tokens, each an integer 0..4. Any other payload (30 ints, 65
+  ints, a `5`, a `x`, …) is logged, the line is consumed (resync), the board
+  and all other game state are left untouched, and the client waits for the
+  next command instead of playing on a partial board.
+- Move payload (after `'3'`): also read to the end of the line (T9; the
+  parser itself is unchanged — `PusherApplication.parseMove`). The client's
+  own format is 4 characters
   `colLetter rowDigit colLetter rowDigit` (e.g. `D2E3` = from D2 to E3; columns
   A–H, row digits 1–8 with 1 = top row 0 and 8 = bottom row 7). The parser also
   accepts a legacy layout of ≥ 7 characters with the origin at indices 0–1 and
@@ -120,10 +128,15 @@ command in the protocol.
   length prefix) and flushed; nothing is sent when the client has no legal move.
 
 **Confirmed against the server?** NO. The board orientation (which corner is
-the first of the 64 integers), the move-string layout, and the framing
-(newline-terminated? length-prefixed? raw chunks?) are all assumptions; the
-client currently accepts its own 4-char format and the legacy 7-char layout,
-and it is not verified which one the server actually sends.
+the first of the 64 integers) and the move-string layout are assumptions; the
+client accepts its own 4-char format and the legacy 7-char layout, and it is
+not verified which one the server actually sends. **Framing:** since the
+server owner never confirmed it, T9 implemented the plan's fallback —
+**newline-terminated messages** (payload read to `\n`/`\r\n`, board payload
+validated as 64 ints in 0..4, resync-on-invalid). A server that sends
+unterminated chunks would hang the client at the first payload read; if the
+real framing turns out to be raw chunks, `PusherApplication.readLine` is the
+single place to revisit.
 
 ## Open questions (for the server owner)
 
@@ -140,4 +153,6 @@ and it is not verified which one the server actually sends.
    exactly 64 always sent? (Item 5.)
 6. **Move text / framing:** which move-string layout does the server send and
    accept (4-char `D2E3` vs. the 7-char layout)? Are messages
-   newline-terminated, length-prefixed, or raw chunks? (Item 5.)
+   newline-terminated, length-prefixed, or raw chunks? (Item 5.) **T9
+   answered this with the plan's fallback — newline-terminated — pending a
+   real answer; the client now assumes it (see the framing note above).**

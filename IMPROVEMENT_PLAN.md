@@ -55,13 +55,15 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 (if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
 ./build.sh test
-# Expected: OK (99 tests). GameTreeTest takes ~5 s (real time-limited searches);
+# Expected: OK (105 tests). GameTreeTest takes ~5 s (real time-limited searches);
 # PusherApplicationTest drives full-budget searches (a few seconds).
 # (Count history: 42 at T1, +20 from T5's RulesContractTest, +2 from T7's
 # BenchTest, +3 from T3's QuiescenceTest, +14 from T4's ThreatEvalTest,
 # +7 from T2: 4 PusherApplicationTest + 3 BugProofTest regression tests,
 # +4 from T8: 3 EvalSymmetryTest + 1 ThreatEvalTest mirror test,
-# +7 from T6's TranspositionTableTest.)
+# +7 from T6's TranspositionTableTest,
+# +6 from T9: 3 PusherApplicationTest framing tests + 3 readLine/
+# parseBoardPayload unit tests.)
 ```
 JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
 sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
@@ -642,6 +644,40 @@ correctly; (b) a truncated board (30 ints) is rejected without corrupting the
 
 **Risk.** Medium (protocol guesswork — the doc step first). **Estimate.**
 1 agent-session.
+
+**Findings (post-T9 client; full suite green ×2 at 105 tests):**
+- Framing was never confirmed with the server owner, so the plan's fallback
+  is implemented: **newline-terminated messages**. `PusherApplication.readLine`
+  reads each payload byte-by-byte to `\n`/`\r\n` (the `\n` half of a CRLF pair
+  is consumed so the outer command loop cannot misread it; EOF without a
+  payload → null; EOF with a partial payload → returned as-is). The command
+  byte is still read as a single byte. **Carried-forward risk:** a server that
+  sends unterminated chunks would stall the client at the first payload read —
+  if the real framing turns out to be raw chunks, `readLine` is the single
+  place to revisit (docs/RULES.md item 5 and open question 6 say exactly
+  that).
+- Board payloads are now validated (`parseBoardPayload`): exactly 64
+  whitespace-separated integers, each 0..4. Anything else is logged, the line
+  is consumed (resync), the singleton board and all game state are left
+  untouched, and the loop waits for the next command — no more partial boards.
+  `beginNewGame` validates *before* `board.reset()`, so a bad `'1'`/`'2'`
+  cannot wipe an in-progress game or its pending move.
+- The `'3'` move payload uses the same line read; `parseMove` (4-char +
+  legacy 7-char) is the unchanged validator.
+- `MockPusherServer` now sends newline-terminated messages and gained
+  `sendFragmented(command, payload, fragmentCount, gapMillis)` (plus the
+  `sendNewGameWhiteFragmented` / `sendNewGameBlackFragmented` /
+  `sendOpponentMoveFragmented` wrappers) to split a message across flushed
+  writes with a gap; `AppSession.send` mirrors the framing and
+  `AppSession.sendRaw` feeds deliberately malformed lines.
+- New tests (6; suite 99 → 105): a board sent in 3 socket fragments ~150 ms
+  apart is reassembled exactly and the stream stays in sync for the next
+  single-shot command (red pre-T9: partial board, no response); a 30-int
+  board is rejected with the board and turn state byte-identical to before,
+  and the loop recovers on the next valid `'3'` (red pre-T9: 30 tokens
+  placed, game played on the partial board); single-shot regression; unit
+  tests for `readLine` (split bytes, CRLF, EOF) and `parseBoardPayload`
+  (30/65 tokens, `5`, `-1`, `x`, null, empty).
 
 ---
 

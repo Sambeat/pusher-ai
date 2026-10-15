@@ -29,6 +29,13 @@ public class PusherApplication {
 	static final int DESTINATION_COLUM = 5;
 	static final int DESTINATION_ROW = 6;
 
+	/**
+	 * The number of integers a well-formed board payload must contain (the
+	 * 8x8 board, docs/RULES.md item 5).
+	 */
+	static final int BOARD_TOKEN_COUNT =
+			GameBoard.GAME_BOARD_LENGTH * GameBoard.GAME_BOARD_LENGTH;
+
 	static GameBoard board = GameBoard.getInstance();
 	static Move move;
 	static GameTree gameTree;
@@ -50,6 +57,14 @@ public class PusherApplication {
 	 * {@link #main(String[])} (T2) so tests can drive the app with in-memory
 	 * streams or the mock server instead of a real socket on port 8888.
 	 * main() only does the socket setup and hands the buffered streams over.
+	 *
+	 * Message framing (T9): the command byte is read as a single byte, and
+	 * each payload (board after '1'/'2', opponent move after '3') is read to
+	 * the end of its newline-terminated line, byte by byte, so a message
+	 * split or coalesced across any number of TCP reads is reassembled
+	 * exactly. Newline-terminated framing is the assumption documented in
+	 * docs/RULES.md item 5 (open question 6) until the server owner
+	 * confirms the real framing.
 	 *
 	 * @param in  Stream from the server (command bytes + payloads).
 	 * @param out Stream to the server (the chosen moves).
@@ -78,38 +93,29 @@ public class PusherApplication {
 			try {
 				switch (cmd) {
 				case '1':
-					//A fresh game: clear whatever the previous game left on
-					//the board (leftover pieces, turn player, turn number,
-					//capture log) and any stale move from the old game.
-					board.reset();
-					move = null;
-					createInitialBoard(input);
-					gameTree = new GameTree(Player.WHITE, Player.BLACK);
-					board.updateAllLegaLMoves();
-
-					move = gameTree.getBestMoveQuick();
-					communicateMove(output, move);
+					//A fresh game: read and validate the board payload first,
+					//then clear whatever the previous game left on the board
+					//(leftover pieces, turn player, turn number, capture log)
+					//and any stale move from the old game.
+					if (beginNewGame(input, Player.WHITE, Player.BLACK)) {
+						move = gameTree.getBestMoveQuick();
+						communicateMove(output, move);
+					}
 					break;
 				case '2':
-					board.reset();
-					move = null;
-					createInitialBoard(input);
-					gameTree = new GameTree(Player.BLACK, Player.WHITE);
-					board.updateAllLegaLMoves();
+					beginNewGame(input, Player.BLACK, Player.WHITE);
 					break;
 				case '3':
 					if (move != null)
 						board.movePiece(move);
 					move = null;
 
-					byte[] aBuffer = new byte[16];
-
-					int size = input.available();
-					if (size > 0) {
-						input.read(aBuffer, 0, size);
+					String s = readLine(input);
+					if (s == null) {
+						//EOF before any payload: the outer loop sees the closed
+						//connection on its next command read and exits.
+						break;
 					}
-
-					String s = new String(aBuffer).trim();
 
 					Move opponentMove = parseMove(s);
 					if (opponentMove == null) {
@@ -216,27 +222,128 @@ public class PusherApplication {
 	}
 
 	/**
-	 * Create the initial game board of the game.
+	 * Handle the board payload of a '1'/'2' command (T9).
 	 *
-	 * @param input
-	 * @throws IOException
+	 * The payload is read to the end of its line (newlines are the assumed
+	 * server framing, docs/RULES.md item 5), validated (exactly 64 integers,
+	 * each 0..4), and only then is the singleton board reset and the pieces
+	 * placed. An invalid payload is consumed (resync) and logged; the board
+	 * and all other game state are left untouched and the command loop waits
+	 * for the next command instead of playing on a partial board.
+	 *
+	 * @param input     The buffered server input, positioned just after the
+	 *                  command byte.
+	 * @param maxPlayer The AI's player for the new game.
+	 * @param minPlayer The opponent.
+	 * @return true if the board was built and a new GameTree created.
+	 * @throws IOException if reading the payload fails.
 	 */
-	static private void createInitialBoard(BufferedInputStream input) throws IOException {
-		byte[] aBuffer = new byte[1024];
-
-		int size = input.available();
-		if (size <= 0) {
-			throw new IOException("No board data received.");
+	static boolean beginNewGame(BufferedInputStream input, Player maxPlayer,
+								  Player minPlayer) throws IOException {
+		String payload = readLine(input);
+		int[] values = parseBoardPayload(payload);
+		if (values == null) {
+			System.out.println("Invalid board payload [" + payload + "] "
+					+ "(expected 64 integers 0..4, newline-terminated). "
+					+ "Board left untouched; waiting for the next command.");
+			return false;
 		}
-		input.read(aBuffer, 0, size);
-		String s = new String(aBuffer).trim();
-		System.out.println(s);
-		String[] boardValues;
-		boardValues = s.split(" ");
-		int x = 7, y = 7;
-		for (int i = 0; i < boardValues.length; i++) {
 
-			switch (Integer.parseInt(boardValues[i])) {
+		board.reset();
+		move = null;
+		placeBoard(values);
+		gameTree = new GameTree(maxPlayer, minPlayer);
+		board.updateAllLegaLMoves();
+		return true;
+	}
+
+	/**
+	 * Read one newline-terminated payload (T9) from the server, byte by
+	 * byte, so a message split or coalesced across any number of TCP reads
+	 * is reassembled exactly. The pre-T9 code used input.available() plus a
+	 * single read(), which silently truncated or coalesced payloads whenever
+	 * the kernel did not deliver the whole message at once.
+	 *
+	 * The line ends at '\n' (or '\r\n'; the '\n' half of a CRLF pair is
+	 * consumed so the outer command loop does not misread it as an unknown
+	 * command byte). At EOF without a terminator, whatever was received is
+	 * returned (a final message that lost its newline at connection close is
+	 * still complete if all its payload arrived); at EOF with no payload,
+	 * null.
+	 *
+	 * @param input The buffered server input.
+	 * @return the payload with surrounding whitespace stripped, or null at
+	 *         EOF without a payload.
+	 * @throws IOException if reading fails.
+	 */
+	public static String readLine(BufferedInputStream input) throws IOException {
+		StringBuilder payload = new StringBuilder();
+		int b;
+		while ((b = input.read()) != -1) {
+			char c = (char) b;
+			if (c == '\n')
+				break;
+			if (c == '\r') {
+				input.mark(1);
+				int next = input.read();
+				if (next != '\n' && next != -1)
+					input.reset();
+				break;
+			}
+			payload.append(c);
+		}
+		if (b == -1 && payload.length() == 0)
+			return null;
+		return payload.toString().trim();
+	}
+
+	/**
+	 * Parse and validate a board payload (T9): whitespace-separated
+	 * integers, exactly 64 of them, each 0..4 (0 = empty, 1 = Black Pushee,
+	 * 2 = Black Pusher, 3 = White Pushee, 4 = White Pusher). The tokens
+	 * address the squares starting at H8 (row 7, col 7), right-to-left, then
+	 * bottom-to-top: the 1st token is H8, the 64th A1 (docs/RULES.md item 5).
+	 * Exposed for tests.
+	 *
+	 * @param payload The raw payload line.
+	 * @return the 64 values, or null if the payload is not exactly 64
+	 *         integers in 0..4 (the caller must not place a partial board).
+	 */
+	public static int[] parseBoardPayload(String payload) {
+		if (payload == null)
+			return null;
+		String s = payload.trim();
+		if (s.isEmpty())
+			return null;
+		String[] tokens = s.split("\\s+");
+		if (tokens.length != BOARD_TOKEN_COUNT)
+			return null;
+		int[] values = new int[BOARD_TOKEN_COUNT];
+		for (int i = 0; i < BOARD_TOKEN_COUNT; i++) {
+			int value;
+			try {
+				value = Integer.parseInt(tokens[i]);
+			} catch (NumberFormatException e) {
+				return null;
+			}
+			if (value < 0 || value > 4)
+				return null;
+			values[i] = value;
+		}
+		return values;
+	}
+
+	/**
+	 * Place the validated 64 board values on the (already reset) board:
+	 * token 0 at H8 (row 7, col 7), right-to-left, then bottom-to-top.
+	 *
+	 * @param values The validated payload values (64 entries, each 0..4).
+	 */
+	static private void placeBoard(int[] values) {
+		int x = 7, y = 7;
+		for (int value : values) {
+
+			switch (value) {
 
 			case 1:
 				board.putPiece(new Pushee(Player.BLACK), y, x);
@@ -251,6 +358,7 @@ public class PusherApplication {
 				board.putPiece(new Pusher(Player.WHITE), y, x);
 				break;
 			default:
+				//0: empty square.
 				break;
 			}
 
