@@ -26,12 +26,10 @@ import java.util.List;
  *   <li>'4' — the client answers with a random legal move (no payload).</li>
  * </ul>
  *
- * Messages are newline-terminated, the framing T9 assumes the real server
- * uses (docs/RULES.md item 5, open question 6): command byte, payload,
- * '\n'. By default the command byte and the whole payload are written in a
- * single flushed write; sendFragmented additionally simulates a message
- * split across several TCP writes (each flushed, with a gap between them),
- * which the client's pre-T9 input.available()-based reads could not survive.
+ * Every command byte is written together with its payload in a single
+ * buffered write (one flush), mirroring how a real server would send it in
+ * one segment: the client's input.available()-based reads then see the whole
+ * payload at once.
  *
  * Client responses are the 4-char move strings the app writes raw (no
  * newline, see PusherApplication.communicateMove). This server reads them as
@@ -197,71 +195,23 @@ public class MockPusherServer implements AutoCloseable {
     }
 
     private void send(byte command, String payload) {
-        sendFragmented(command, payload, 1, 0);
-    }
-
-    /**
-     * T9: send command + payload + '\n' in `fragmentCount` separate writes,
-     * each flushed, `gapMillis` apart, to simulate a message split across
-     * TCP segments (e.g. fragmentCount 2 = "send a few bytes, sleep, send
-     * the rest"). No single read on the client side sees the whole message
-     * at once while the gaps hold.
-     */
-    public void sendFragmented(byte command, String payload,
-                               int fragmentCount, long gapMillis) {
-        if (fragmentCount < 1)
-            throw new IllegalArgumentException("fragmentCount must be >= 1");
-        //Command byte, payload, then the framing newline (T9's assumed
-        //server framing, docs/RULES.md item 5).
-        byte[] full = new byte[2 + payload.length()];
-        full[0] = command;
-        for (int i = 0; i < payload.length(); i++)
-            full[1 + i] = (byte) payload.charAt(i);
-        full[full.length - 1] = '\n';
-
         synchronized (sendLock) {
             try {
                 if (!clientConnected)
                     throw new IOException("the test client is not connected yet");
-                int base = full.length / fragmentCount;
-                int offset = 0;
-                for (int fragment = 0; fragment < fragmentCount; fragment++) {
-                    //Contiguous chunks; the last one takes the remainder so
-                    //the fragments cover the message exactly.
-                    int chunk = (fragment == fragmentCount - 1)
-                            ? full.length - offset : base;
-                    clientOut.write(full, offset, chunk);
-                    clientOut.flush();
-                    offset += chunk;
-                    if (gapMillis > 0 && fragment < fragmentCount - 1)
-                        Thread.sleep(gapMillis);
-                }
+                //Command byte and payload in a single write, flushed once: the
+                //client's input.available()-based payload reads then see the
+                //whole message at once, as with a real single-segment send.
+                byte[] full = new byte[1 + payload.length()];
+                full[0] = command;
+                for (int i = 0; i < payload.length(); i++)
+                    full[1 + i] = (byte) payload.charAt(i);
+                clientOut.write(full);
+                clientOut.flush();
             } catch (IOException e) {
                 throw new IllegalStateException(
-                        "failed to send fragmented command '" + (char) command + "'", e);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException(
-                        "interrupted while sending fragmented command", e);
+                        "failed to send command '" + (char) command + "'", e);
             }
         }
-    }
-
-    /** New game (AI plays White), board split across writes (T9). */
-    public void sendNewGameWhiteFragmented(int[][] board,
-                                           int fragmentCount, long gapMillis) {
-        sendFragmented((byte) '1', boardText(board), fragmentCount, gapMillis);
-    }
-
-    /** New game (AI plays Black), board split across writes (T9). */
-    public void sendNewGameBlackFragmented(int[][] board,
-                                           int fragmentCount, long gapMillis) {
-        sendFragmented((byte) '2', boardText(board), fragmentCount, gapMillis);
-    }
-
-    /** The opponent's move split across writes (T9). */
-    public void sendOpponentMoveFragmented(String fourCharMove,
-                                           int fragmentCount, long gapMillis) {
-        sendFragmented((byte) '3', fourCharMove, fragmentCount, gapMillis);
     }
 }

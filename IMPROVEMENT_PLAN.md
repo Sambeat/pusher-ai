@@ -55,7 +55,7 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 (if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
 ./build.sh test
-# Expected: OK (108 tests). GameTreeTest takes ~5 s (real time-limited searches);
+# Expected: OK (103 tests). GameTreeTest takes ~5 s (real time-limited searches);
 # PusherApplicationTest drives full-budget searches (a few seconds).
 # (Count history: 42 at T1, +20 from T5's RulesContractTest, +2 from T7's
 # BenchTest, +3 from T3's QuiescenceTest, +14 from T4's ThreatEvalTest,
@@ -64,7 +64,12 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 # +7 from T6's TranspositionTableTest,
 # +6 from T9: 3 PusherApplicationTest framing tests + 3 readLine/
 # parseBoardPayload unit tests,
-# +3 from T10's RepetitionTest: 2 engine + 1 app-level.)
+# +3 from T10's RepetitionTest: 2 engine + 1 app-level,
+# +1 from T11 (board-orientation test; the two move-format tests from its
+# first pass were reverted after the server owner confirmed the initial
+# 4-char format),
+# -6 from T12: T9's framing tests removed with the newline-framing revert
+# (the wire stays unframed per the server owner).)
 ```
 JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
 sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
@@ -763,6 +768,181 @@ the client burns CPU forever.
   close to the 300-ply cap, and the penalty has no measurable effect on the
   standard bench position (the 13-ply forced line contains no repetitions).
 
+### T11 — Apply the server-confirmed rules (board orientation; move format = initial 4-char)
+**Goal.** Record the server owner's answers to T5's open questions
+(`docs/RULES.md`) and implement the change they require: the board-text
+orientation. (The first pass also switched the move send to a 7-char layout;
+the follow-up confirmed the initial 4-char format was the right one and that
+was reverted — see answer 6.)
+
+**Depends on:** T5 (the questions it answers), T9 (the payload plumbing it
+changes). **Not dependent on any engine task — no search/eval changes.**
+
+**Scope.** `src/client/PusherApplication.java` (board placement order; the
+move send stays the initial 4-char — see answer 6), `src/tests/MockPusherServer.java` (encode what the real server
+sends), `src/tests/PusherApplicationTest.java`, `src/tests/RepetitionTest.java`
+(opponent moves stay 4-char), `docs/RULES.md`, `README.md` (the one-line client
+description).
+
+**Answers (server owner):**
+1. **Win condition:** any piece (Pusher or Pushee) on the enemy goal row
+   wins — explicitly confirmed in the follow-up ("both pieces can win");
+   the BLACK-wins-tie rule stands, but a double goal-row position is
+   impossible in play (players alternate; the first goal-row landing ends
+   the game). → no code change.
+2. **Captures:** diagonal-only. → no code change.
+3. **Stalemate:** no legal move is a loss. → no code change.
+4. **Pushee rule:** mirror-square Pusher requirement, "mirror everywhere"
+   including the diagonal case — verified against the code: it is the *only*
+   setup that lets a Pushee move (no alternative adjacency rule anywhere).
+   → no code change.
+5. **Board text:** **top-left to bottom-right** — the 1st of the 64 ints is
+   A1 (row 0, col 0), left-to-right, top-to-bottom. The client placed the
+   1st token at H8 (bottom-right): the exact 180° rotation. → `placeBoard`
+   flipped.
+6. **Move text:** the client's **initial 4-char format is the right one**
+   (follow-up: "the initial format was the right one, why are you trying to
+   change the format?"). T11's first pass had read the earlier "Didn't the
+   server expect 7 chars?" as confirmation of a 7-char send and added
+   `toServerMoveString` — that was reverted: `communicateMove` sends
+   `move.toString()` (4-char) again, and `parseMove`'s lenient legacy
+   7-char acceptance is unchanged. Framing stays unconfirmed (T9's newline
+   assumption stands).
+7. **Endless play:** impossible under the confirmed rules (every ply
+   advances one piece one row toward its goal row; the total
+   remaining-distance potential strictly decreases, so a position can never
+   repeat and every game ends in a win or a stalemate-loss). No draw
+   command is needed. → the T10 guards are kept as defensive safety nets.
+
+**Acceptance.**
+1. `boardPayloadIsPlacedTopLeftFirst` — a marker board (a piece on each
+   corner + two mid-board squares) sent via `'2'` is placed exactly as sent
+   (red pre-flip: the board comes back as the 180° rotation).
+2. Move send: the client sends the initial 4-char format (`move.toString()`),
+   confirmed as the right one by the server owner's follow-up. (First pass,
+   reverted: a 7-char `toServerMoveString` send plus two format tests were
+   added on the strength of "Didn't the server expect 7 chars?"; the
+   follow-up made it clear the initial format was correct, so they were
+   removed.)
+3. All scenario tests speak the confirmed protocol: the mock encodes boards
+   top-left-first; client responses are the 4-char format (mock + AppSession
+   read 4-byte chunks); `RulesContractTest` stays untouched (items 1–4 are
+   unchanged by this task).
+4. Full suite green ×2.
+
+**Verification.** Full suite ×2; `./build.sh test` expected count updated.
+
+**Risk.** Low-medium (wire format; the round-trip scenario tests are the
+safety net — they pin position AND piece type for every board sent).
+**Estimate.** 1 agent-session.
+
+**Findings (post-T11 client; full suite green ×2 at 109 tests):**
+- The orientation fix is a pure 180° rotation: `placeBoard` now walks the
+  tokens left-to-right, top-to-bottom from A1 (row 0, col 0), and
+  `MockPusherServer.boardText` encodes the same order, so every existing
+  round-trip scenario test (which pins position AND piece type for each
+  board sent) needed no edits beyond the format updates.
+- Move send: **reverted to the initial 4-char format after the server
+  owner's follow-up** ("the initial format was the right one"). The first
+  pass — built on the earlier "Didn't the server expect 7 chars?" — had
+  switched `communicateMove` to a 7-char `toServerMoveString` (origin 0–1,
+  destination 5–6, three spaces between) with two format tests; all of that
+  was removed and `communicateMove` sends `move.toString()` again. The
+  `parseMove` leniency (accepts 4-char + the legacy 7-char layout) is
+  unchanged, so a server that sends the 7-char layout is still parsed.
+- RULES.md: items 1–4 confirmed as implemented (item 1 explicitly —
+  "both pieces can win"; Q4 with the code verification — the mirror-square
+  friendly Pusher is the only setup that enables a Pushee move for all three
+  destination types; the `hasAdjacentPusher` helper exists but is unused),
+  item 5 confirmed with the H8→A1 correction, item 6 confirmed (initial
+  4-char format; framing remains an assumption), item 7 resolved with the
+  strict-decrease proof (Φ = total remaining forward distance; every ply
+  decreases Φ by ≥ 1; Φ₀ ≤ 70 for the standard 5+5 setup, so the T10 300-ply
+  cap is unreachable under the rules). The open-questions list is down to
+  one: the framing (assumed newline-terminated).
+- Red/green: with the mock encoding the confirmed order, exactly the 10
+  app-level tests failed (boards came back as the 180° rotation) while all
+  101 engine/board tests stayed green. After the `placeBoard` flip the full
+  suite was green ×2 at 111 tests; after the move-format revert it is green
+  ×2 at 109.
+- New tests: 1 kept (board orientation; suite 108 → 109 — the two
+  move-format tests were added in the first pass and removed with the
+  revert).
+
+### T12 — Restore the original wire protocol (H8-first orientation, no framing)
+**Goal.** The server owner's follow-up (T11 review): "the old original code
+probably had the orientation right too... if there were no framing in place
+before, I wouldn't add one. The parsing was already functioning correctly."
+The initial client demonstrably worked against the real server, so the
+original wire behavior is the contract: board tokens start at H8
+(bottom-right), the move send is the initial 4-char format, and there is no
+message framing (payload read in the original available()-based read).
+T11's orientation flip and T9's newline framing are both reverted; T10's
+ply bookkeeping is preserved.
+
+**Depends on:** T11 (the follow-up it elicited), T9 (the framing it reverts).
+
+**Scope.** `src/client/PusherApplication.java` (restore the pre-T9 wire
+logic — `createInitialBoard` with the H8-first placement and available()
+reads, the 16-byte move read — keeping the T2 robustness fixes and T10's
+plies bookkeeping; drop readLine/parseBoardPayload/beginNewGame
+validation), `src/tests/MockPusherServer.java` (restore the T2 mock:
+single write+flush per command, no newline, H8-first boardText, 4-byte
+response reads, no sendFragmented), `src/tests/PusherApplicationTest.java`
+(drop T9's six framing tests; the orientation test now pins the original
+H8-first order), `docs/RULES.md`.
+
+**Answers this task records (server owner):**
+- **Orientation:** the original order (1st token = H8, right-to-left,
+  bottom-to-top) is the wire format — the initial code "probably had the
+  orientation right too" because the parsing was already functioning
+  correctly against the real server. The earlier "top-left to bottom-right"
+  answer (T11) was a design preference, not a fact; retracted.
+- **Framing:** none. "if there were no framing in place before, I wouldn't
+  add one" — T9's newline-terminated read (an unconfirmed assumption) is
+  reverted; a server that sends no newlines would hang a newline-based
+  reader, and the original available() read is what worked in production.
+  The theoretical weakness of the available() read (a payload split across
+  TCP segments) is accepted by the server owner.
+- **Move format:** unchanged — the initial 4-char send (T11 follow-up).
+
+**Acceptance.**
+1. The orientation test pins the original order: a marker board (a piece on
+   each corner + two mid-board squares) sent via '2' places token 0 at H8
+   (row 7, col 7), token 7 at A8, token 56 at H1, token 63 at A1.
+2. All T2 scenario tests pass unchanged against the restored wire behavior
+   (mock sends command+payload in one write without newline; the app reads
+   via available()).
+3. T9's framing tests (fragmented board, truncated board, single-shot,
+   readLine ×2, parseBoardPayload unit) are removed with the framing.
+4. T10's ply bookkeeping (plies/MAX_PLIES/registerPly, reset per new game)
+   is preserved — RepetitionTest stays green.
+5. Full suite green ×2 (109 → 103).
+
+**Verification.** Full suite ×2.
+
+**Risk.** Low — restores a known-working state; the T2 scenario tests are
+the regression net. **Estimate.** 0.5 agent-session.
+
+**Findings (post-T12 client; full suite green ×2 at 103 tests):**
+- `PusherApplication` is the pre-T9 wire logic (available() reads, H8-first
+  `createInitialBoard`, 4-char `move.toString()` send, lenient 4+-/7-char
+  `parseMove`) with T10's ply bookkeeping re-applied (plies/MAX_PLIES/
+  registerPly + reset in the '1'/'2' handlers) and the T2 robustness fixes
+  (EOF exit, per-command exception containment, null-move no-send).
+  `readLine`/`parseBoardPayload`/`beginNewGame` validation are gone. The
+  `run()` javadoc now documents the no-framing contract so it is not
+  "fixed" back into newline framing.
+- `MockPusherServer` is the T2 mock restored verbatim (single write+flush
+  per command, no newline, H8-first `boardText`, 4-byte response reads);
+  the six T9 framing tests are removed; the orientation test now pins the
+  original H8-first order (`boardPayloadIsPlacedH8First`).
+- RULES.md: items 5–6 now read "the original wire behavior is the
+  contract"; the open-questions list is empty — all seven T5 questions are
+  resolved.
+- Suite: 109 → 103 (−6 T9 framing tests; the orientation test was kept and
+  flipped).
+
 ---
 
 ## Suggested execution order
@@ -773,6 +953,9 @@ T1 ─┬─► T7 (baseline) ─► T3 ─► T4 ─► T8 ─► T6
 T2 ─┴──────────────────► T9
                           T10 (anytime after T1)
 T5: do first among engine tasks (0.5 session, removes guesswork for T3/T4)
+T11: wire-format follow-up — needs T5's answers and T9's payload plumbing
+T12: owner follow-up — restore the original wire behavior (H8-first,
+     no framing); reverts T11's flip + T9's framing
 ```
 
 **Deliberately not planned** (and why):
