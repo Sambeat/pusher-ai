@@ -156,3 +156,10 @@ single place to revisit.
    newline-terminated, length-prefixed, or raw chunks? (Item 5.) **T9
    answered this with the plan's fallback — newline-terminated — pending a
    real answer; the client now assumes it (see the framing note above).**
+7. **Endless play:** if both engines settle into a repetition, the game
+   never ends and there is **no known draw command** in the protocol. What
+   should the client do — keep playing (T10's choice, with a warning after
+   300 plies), declare a draw itself, or something else? T10 also dampens
+   repeating root moves in the engine (`GameTree.REPETITION_PENALTY`) so the
+   AI stops shuffling first; that is a client-side preference, not a rule
+   (related: item 3, stalemate).

@@ -599,9 +599,10 @@ public class PusherApplicationTest {
     /**
      * Drive PusherApplication.run with in-memory piped streams (no socket):
      * the test writes protocol commands into the app's input and reads the
-     * app's 4-byte move responses from its output.
+     * app's 4-byte move responses from its output. Package-visible so the
+     * T10 app-level test (tests.RepetitionTest) can reuse it.
      */
-    private static class AppSession implements AutoCloseable {
+    static class AppSession implements AutoCloseable {
 
         private final PipedOutputStream toApp;
         private final PipedInputStream appIn;
