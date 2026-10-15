@@ -55,7 +55,7 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 (if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
 ./build.sh test
-# Expected: OK (109 tests). GameTreeTest takes ~5 s (real time-limited searches);
+# Expected: OK (103 tests). GameTreeTest takes ~5 s (real time-limited searches);
 # PusherApplicationTest drives full-budget searches (a few seconds).
 # (Count history: 42 at T1, +20 from T5's RulesContractTest, +2 from T7's
 # BenchTest, +3 from T3's QuiescenceTest, +14 from T4's ThreatEvalTest,
@@ -67,7 +67,9 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 # +3 from T10's RepetitionTest: 2 engine + 1 app-level,
 # +1 from T11 (board-orientation test; the two move-format tests from its
 # first pass were reverted after the server owner confirmed the initial
-# 4-char format).)
+# 4-char format),
+# -6 from T12: T9's framing tests removed with the newline-framing revert
+# (the wire stays unframed per the server owner).)
 ```
 JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
 sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
@@ -867,6 +869,80 @@ safety net — they pin position AND piece type for every board sent).
   move-format tests were added in the first pass and removed with the
   revert).
 
+### T12 — Restore the original wire protocol (H8-first orientation, no framing)
+**Goal.** The server owner's follow-up (T11 review): "the old original code
+probably had the orientation right too... if there were no framing in place
+before, I wouldn't add one. The parsing was already functioning correctly."
+The initial client demonstrably worked against the real server, so the
+original wire behavior is the contract: board tokens start at H8
+(bottom-right), the move send is the initial 4-char format, and there is no
+message framing (payload read in the original available()-based read).
+T11's orientation flip and T9's newline framing are both reverted; T10's
+ply bookkeeping is preserved.
+
+**Depends on:** T11 (the follow-up it elicited), T9 (the framing it reverts).
+
+**Scope.** `src/client/PusherApplication.java` (restore the pre-T9 wire
+logic — `createInitialBoard` with the H8-first placement and available()
+reads, the 16-byte move read — keeping the T2 robustness fixes and T10's
+plies bookkeeping; drop readLine/parseBoardPayload/beginNewGame
+validation), `src/tests/MockPusherServer.java` (restore the T2 mock:
+single write+flush per command, no newline, H8-first boardText, 4-byte
+response reads, no sendFragmented), `src/tests/PusherApplicationTest.java`
+(drop T9's six framing tests; the orientation test now pins the original
+H8-first order), `docs/RULES.md`.
+
+**Answers this task records (server owner):**
+- **Orientation:** the original order (1st token = H8, right-to-left,
+  bottom-to-top) is the wire format — the initial code "probably had the
+  orientation right too" because the parsing was already functioning
+  correctly against the real server. The earlier "top-left to bottom-right"
+  answer (T11) was a design preference, not a fact; retracted.
+- **Framing:** none. "if there were no framing in place before, I wouldn't
+  add one" — T9's newline-terminated read (an unconfirmed assumption) is
+  reverted; a server that sends no newlines would hang a newline-based
+  reader, and the original available() read is what worked in production.
+  The theoretical weakness of the available() read (a payload split across
+  TCP segments) is accepted by the server owner.
+- **Move format:** unchanged — the initial 4-char send (T11 follow-up).
+
+**Acceptance.**
+1. The orientation test pins the original order: a marker board (a piece on
+   each corner + two mid-board squares) sent via '2' places token 0 at H8
+   (row 7, col 7), token 7 at A8, token 56 at H1, token 63 at A1.
+2. All T2 scenario tests pass unchanged against the restored wire behavior
+   (mock sends command+payload in one write without newline; the app reads
+   via available()).
+3. T9's framing tests (fragmented board, truncated board, single-shot,
+   readLine ×2, parseBoardPayload unit) are removed with the framing.
+4. T10's ply bookkeeping (plies/MAX_PLIES/registerPly, reset per new game)
+   is preserved — RepetitionTest stays green.
+5. Full suite green ×2 (109 → 103).
+
+**Verification.** Full suite ×2.
+
+**Risk.** Low — restores a known-working state; the T2 scenario tests are
+the regression net. **Estimate.** 0.5 agent-session.
+
+**Findings (post-T12 client; full suite green ×2 at 103 tests):**
+- `PusherApplication` is the pre-T9 wire logic (available() reads, H8-first
+  `createInitialBoard`, 4-char `move.toString()` send, lenient 4+-/7-char
+  `parseMove`) with T10's ply bookkeeping re-applied (plies/MAX_PLIES/
+  registerPly + reset in the '1'/'2' handlers) and the T2 robustness fixes
+  (EOF exit, per-command exception containment, null-move no-send).
+  `readLine`/`parseBoardPayload`/`beginNewGame` validation are gone. The
+  `run()` javadoc now documents the no-framing contract so it is not
+  "fixed" back into newline framing.
+- `MockPusherServer` is the T2 mock restored verbatim (single write+flush
+  per command, no newline, H8-first `boardText`, 4-byte response reads);
+  the six T9 framing tests are removed; the orientation test now pins the
+  original H8-first order (`boardPayloadIsPlacedH8First`).
+- RULES.md: items 5–6 now read "the original wire behavior is the
+  contract"; the open-questions list is empty — all seven T5 questions are
+  resolved.
+- Suite: 109 → 103 (−6 T9 framing tests; the orientation test was kept and
+  flipped).
+
 ---
 
 ## Suggested execution order
@@ -878,6 +954,8 @@ T2 ─┴──────────────────► T9
                           T10 (anytime after T1)
 T5: do first among engine tasks (0.5 session, removes guesswork for T3/T4)
 T11: wire-format follow-up — needs T5's answers and T9's payload plumbing
+T12: owner follow-up — restore the original wire behavior (H8-first,
+     no framing); reverts T11's flip + T9's framing
 ```
 
 **Deliberately not planned** (and why):
