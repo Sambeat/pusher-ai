@@ -40,6 +40,21 @@ public class PusherApplication {
 	static Move move;
 	static GameTree gameTree;
 
+	/**
+	 * T10: plies applied to the local board in the current game. Public
+	 * static (not final) so tests can exercise the warning path with a small
+	 * cap; the command loop is the only writer.
+	 */
+	public static int plies = 0;
+
+	/**
+	 * T10: after this many plies the client logs a warning but keeps
+	 * playing — the protocol has no known draw command (docs/RULES.md, open
+	 * question), so the client must not unilaterally end the game.
+	 * Public static (not final) so tests can lower it; see {@link #plies}.
+	 */
+	public static int MAX_PLIES = 300;
+
 	public static void main(String[] args) {
 		try {
 			System.out.println("Creating socket to localhost:8888");
@@ -106,8 +121,10 @@ public class PusherApplication {
 					beginNewGame(input, Player.BLACK, Player.WHITE);
 					break;
 				case '3':
-					if (move != null)
+					if (move != null) {
 						board.movePiece(move);
+						registerPly();
+					}
 					move = null;
 
 					String s = readLine(input);
@@ -127,6 +144,7 @@ public class PusherApplication {
 					}
 
 					board.movePiece(opponentMove);
+					registerPly();
 
 					move = gameTree.getBestMoveQuick();
 					communicateMove(output, move);
@@ -145,6 +163,22 @@ public class PusherApplication {
 				//the process and drop the connection.
 				e.printStackTrace();
 			}
+		}
+	}
+
+	/**
+	 * T10: count one ply applied to the local board. At MAX_PLIES log a
+	 * warning and keep playing — the protocol has no known draw command
+	 * (docs/RULES.md, open question), so the client must not unilaterally
+	 * end the game.
+	 */
+	static void registerPly() {
+		plies++;
+		if (plies == MAX_PLIES) {
+			System.out.println("Warning: " + MAX_PLIES + " plies without a "
+					+ "winner — possible endless play (repetition). No draw "
+					+ "command is known to the protocol; keeping play going "
+					+ "(docs/RULES.md).");
 		}
 	}
 
@@ -251,6 +285,7 @@ public class PusherApplication {
 
 		board.reset();
 		move = null;
+		plies = 0;
 		placeBoard(values);
 		gameTree = new GameTree(maxPlayer, minPlayer);
 		board.updateAllLegaLMoves();

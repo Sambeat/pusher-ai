@@ -36,6 +36,27 @@ public class GameTree {
 
     private static GameBoard board = GameBoard.getInstance();
 
+    /**
+     * T10: score penalty applied at the root to a move that would return
+     * the game to a recently seen piece arrangement. Small on purpose:
+     * large enough to break a shuffle (realistic static-evaluation margins
+     * between quiet moves are single digits), small enough to never
+     * override a real evaluation difference of any magnitude that matters —
+     * and categorically never a forced win/loss, whose terminal scores are
+     * ~±2^31: the penalty is noise next to them.
+     */
+    public static final int REPETITION_PENALTY = 5;
+
+    /** T10: how many recent arrangements the anti-repetition history keeps. */
+    public static final int REPETITION_HISTORY_LIMIT = 60;
+
+    /**
+     * T10: arrangement-only identifiers (Zobrist with the side-to-move bit
+     * removed) of the positions this tree has been asked to move from,
+     * oldest first, at most REPETITION_HISTORY_LIMIT entries.
+     */
+    private final ArrayDeque<Long> repetitionHistory = new ArrayDeque<>();
+
     private Player maxPlayer;
     private Player minPlayer;
     private Strategy strategy;
@@ -157,6 +178,42 @@ public class GameTree {
         return tt == null ? 0 : tt.hits();
     }
 
+    /**
+     * T10: the Zobrist key (T6) with the side-to-move contribution removed:
+     * it identifies the piece arrangement alone, so "the game has been in
+     * this position before" does not depend on which side is to move (a
+     * root child always has the OPPOSITE side to move from any position
+     * this tree has been asked to move from). The side key is XORed into
+     * the board's hash exactly when it is BLACK's turn (the base value is
+     * WHITE to move, see GameBoard.reset), so removing it is a conditional
+     * XOR. Exposed for tests.
+     */
+    public static long arrangementHash(long zobristHash, Player currentPlayer){
+        return (currentPlayer == Player.BLACK)
+                ? zobristHash ^ TranspositionTable.sideToMoveKey()
+                : zobristHash;
+    }
+
+    /**
+     * T10 test hook: replace the anti-repetition history. The task plan
+     * calls for a package-visible setter; the tests live in the tests
+     * package, so it is public. Entries beyond REPETITION_HISTORY_LIMIT are
+     * trimmed, oldest first.
+     */
+    public void setRepetitionHistory(List<Long> history){
+        repetitionHistory.clear();
+        if (history == null)
+            return;
+        for (long arrangement : history)
+            addRepetitionPosition(arrangement);
+    }
+
+    private void addRepetitionPosition(long arrangementHash){
+        repetitionHistory.addLast(arrangementHash);
+        while (repetitionHistory.size() > REPETITION_HISTORY_LIMIT)
+            repetitionHistory.removeFirst();
+    }
+
 
 
     /**
@@ -168,6 +225,10 @@ public class GameTree {
     public Move getBestMoveQuick(){
         start = System.currentTimeMillis();
         random = nextRandom();
+        //T10: remember this arrangement so the root loop can penalize a
+        //move that returns to it (shuffle-breaking; root only).
+        addRepetitionPosition(arrangementHash(board.getZobristHash(),
+                board.getCurrentPlayer()));
         int level = 1;
         lastCompletedLevel = 0;
         GameStep snapshot = board.createMemento();
@@ -206,6 +267,10 @@ public class GameTree {
     public Move getBestMoveQuick(int depth){
         start = System.currentTimeMillis();
         random = nextRandom();
+        //T10: same history append as the no-arg overload (both enter the
+        //search at the root, where the penalty is applied).
+        addRepetitionPosition(arrangementHash(board.getZobristHash(),
+                board.getCurrentPlayer()));
         try {
             Object[] result = alphaBeta(depth, maxPlayer, Integer.MIN_VALUE, Integer.MAX_VALUE);
             lastCompletedLevel = depth;
@@ -364,14 +429,30 @@ public class GameTree {
             if (player == maxPlayer) {
                 score = (Integer) alphaBeta(depth - 1, minPlayer, alpha, beta, 0)[0];
 
+            } else {
+                score = (Integer) alphaBeta(depth - 1, maxPlayer, alpha, beta, 0)[0];
+            }
+
+            // T10: anti-repetition, at the root only. A move that returns
+            // the game to a recently seen piece arrangement is damped
+            // (REPETITION_PENALTY) so an endless shuffle is broken. The
+            // penalty is noise next to terminal scores (~±2^31): a forced
+            // win/loss is never sacrificed to avoid a repetition (pinned by
+            // tests.RepetitionTest.aForcedWinIsNeverSacrificedToAvoidRepetition).
+            // Applied after the child returns and before the undo, so the
+            // board state is exactly the resulting position's.
+            if (isRoot
+                    && repetitionHistory.contains(arrangementHash(
+                            board.getZobristHash(), board.getCurrentPlayer())))
+                score -= REPETITION_PENALTY;
+
+            if (player == maxPlayer) {
                 if (score > alpha) {
                     alpha = score;
                     bestMove = move;
                 }
 
             } else {
-                score = (Integer) alphaBeta(depth - 1, maxPlayer, alpha, beta, 0)[0];
-
                 if (score < beta) {
                     beta = score;
                     bestMove = move;
