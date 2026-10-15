@@ -1252,6 +1252,250 @@ for subtle value errors.
 
 ---
 
+### T14 — Search-stack audit (targeted review)
+
+**Goal.** Before any further strength work, confirm the search foundation
+(TT + iterative deepening + quiescence + PVS + aspiration + repetition) is
+sound, and identify what actually limits full-board depth (stuck at median 8,
+max 9 since T6). This is a *focused* audit — a numbered checklist where each
+item gets a verdict (VERIFIED-FINE / BUG-FIXED / NOTE) backed by evidence —
+not a rewrite. Fix what is a bug; record the rest. The top suspect for the
+depth plateau is a concrete weakness found while implementing T13, listed
+first.
+
+**Depends on:** T13 (merged).
+
+**Scope.** `src/client/GameTree.java`, `src/client/TranspositionTable.java`
+(read-mostly; fixes only where a verdict is BUG), new/extended tests in
+`src/tests/TranspositionTableTest.java` and `src/tests/GameTreeTest.java`, and
+a **T14 audit findings** section in this file. No behavior change for any item
+verdicted VERIFIED-FINE.
+
+**Checklist** (keep this order — items 1–2 are the depth-plateau suspects):
+
+1. **TT best-move handoff is missing at internal nodes (prime suspect).**
+   In `alphaBeta`, `ttOrderMove` is used for *ordering* at internal nodes only
+   when `ttEntry.depth >= depth`; during iterative deepening the previous
+   level's entry at that node is one depth shallower, so the standard
+   "previous level's best move" handoff exists at the ROOT only (which uses
+   `ttEntry.depth < depth`) and not below it. Levels 2+ ordering below the
+   root rides on same-depth transpositions and cross-move reuse alone. Measure
+   it: on the full board, count internal nodes whose ordered first move comes
+   from a TT entry under the current gate vs. a relaxed gate
+   (`ttEntry != null && ttEntry.bestMove != null`), depths 6–9 (a temporary
+   diagnostic counter or an instrumented run). If the relaxed gate
+   measurably cuts nodes, implement it here (ordering only — it never changes
+   values; pin that with a score-invariance test on/off) and note in T16's
+   scope that part (a) is already done. The score-RETURN gate (`usable()` +
+   `depth >= depth`) must stay strict in all cases — that one is correctness.
+2. **TT soundness edges.** (a) An EXACT entry stored at a *deeper* search is
+   returned at a shallower one (`usable()` + `depth >=`): the standard TT
+   horizon approximation, but measure whether it hurts here — full-board bench
+   with a "same-depth-only" probe variant vs. current: report depth/node
+   deltas. (b) Direct-mapped collisions: the turn-number guard bounds the
+   64-bit-truncation error; measure the collision rate over a full-board game
+   (an optional probe counter suffices). (c) "Deeper entry wins" replacement:
+   confirm the comparison is on stored depth (sound) and cannot oscillate or
+   evict a deeper entry.
+3. **±9000 forced-win bound margin.** Compute the worst-case static score
+   reachable on the full board (8 Pushers + 8 Pushees per side, every T4 term:
+   READY_TO_WIN = 400, capture-threat, PUSHEE_SHIELD = 20, mobility/2, base
+   value + advancement + DEFENSIVE_PREMIUM) — by a maximally-loaded position
+   or by analysis. `getBestMoveQuick()` stops iterative deepening when the root
+   score exceeds ±9000 treating it as a forced win, so a realistic static
+   score near that bound would be a latent bug. If the margin is thin, lower a
+   term weight or raise the constant, and add a test pinning
+   "max achievable static score < 9000" with documented headroom. Confirm the
+   quiescence stand-pat path cannot exceed the same bound.
+4. **PVS × TT interaction.** T13 Part B pins the root-child's stored flag; extend
+   to a fuzz: on 20 seeded random small positions, run a full-window depth-4
+   search with an EMPTY table, then re-run the same position/depth with the
+   table still DIRTY from the first run — root scores must match (dirty-table
+   reuse is sound). Repeat the second pass with PVS off. Catches any unsound
+   probe path through bound entries stored by null-window searches.
+5. **Quiescence bound.** `Q_MAX_DEPTH = 8`: measure how often the
+   `qDepth >= Q_MAX_DEPTH` exit binds in a full-board game (a counter). If it
+   binds often, raising it is cheap (average capture branching ~1–2) — gate on
+   no ms-per-move regression; otherwise NOTE.
+6. **Wall-clock level start.** Iterative deepening starts every level and
+   aborts the last on timeout; the final completed level varies run to run
+   (observed ±1 full-board depth jitter and a winner flip between same-seed
+   runs). Evaluate "start a level only if the previous one took less than half
+   the remaining budget" vs. the current: three same-seed full-board runs,
+   compare depth-profile variance and average max depth. If it cuts variance
+   without losing average depth, implement it (the timeout/revert path stays as
+   the backstop); otherwise record as accepted behavior.
+7. **Repetition penalty × PVS corner.** At a max root with a narrow aspiration
+   window, a penalized fail-high child records `beta − REPETITION_PENALTY`
+   (a bound, not the exact value) when the child's value ≥ the root's beta.
+   Pre-existing (the same formula ran pre-PVS), root-only, magnitude ≤ 5. Expect
+   a NOTE (no fix) — record the reasoning so it is not "fixed" later.
+8. **Board-state discipline.** BugProofTest pins move/undo + revert. Confirm no
+   new dirty-board path exists: the PVS re-search performs no extra board ops
+   (the null-window search undid its own descendants), and the aspiration retry
+   reverts to the same pre-iteration snapshot. Expected VERIFIED-FINE.
+
+**Acceptance.**
+1. A **T14 audit findings** section in this file: one subsection per checklist
+   item, each with its verdict and evidence (a measured number or a test name).
+   No item may be "verified" without one.
+2. Every BUG verdict ships with a regression test that fails before the fix
+   and passes after (BugProofTest or the relevant test class).
+3. Full suite green ×2. The 2000 ms bench (`--games 10 --budget 2000
+   --seed 42`) reports unchanged winners/plies/depth (5/5, 13, 13) unless a
+   fix intentionally changes speed, in which case the delta is reported.
+
+**Verification.** `./build.sh test` ×2; the 2000 ms bench command above.
+
+**Risk.** Low — mostly measurement and documentation; fixes are isolated and
+  test-gated. **Estimate.** 1 session.
+
+---
+
+### T15 — A/B strength harness (measuring engine strength)
+
+**Goal.** Make strength measurable. Mirror self-play (Bench, VisualGame) cannot
+separate strength from a draw: two identical engines always split, so "depth 9
+vs 9" and "the winner flips" prove nothing about progress. This adds mixed
+play to Bench — the current engine against a reference engine with features
+switched off — and reports win rates usable as the acceptance gate for T16 and
+beyond (and, retroactively, for the T3/T4/T6/T13 contributions).
+
+**Depends on:** T13. (Independent of T14 — can run in parallel.)
+
+**Scope.** `src/client/Bench.java` (mixed-play mode + flag plumbing),
+`src/client/GameTree.java` and `src/client/GameAnalyzer.java` (feature
+off-flags only — all default ON so current behavior is bit-identical). No
+protocol changes.
+
+**Requirements.**
+
+1. **Feature off-flags on GameTree** (constructor chain, every one defaulting
+   to on; all existing constructors keep working and every existing test must
+   pass unchanged):
+   - `quiescenceEnabled` (T3): when off, depth-0 nodes return the stand-pat
+     static score directly (pre-T3 behavior) instead of entering `quiescence`.
+   - `threatTermsEnabled` (T4): when off, the `GameAnalyzer` evaluation skips
+     `threatTerms` (plumb the flag from GameTree to the eval call; both
+     strategies must honor it, and T8's mirror invariant must hold with the
+     term both on and off).
+   - `repetitionEnabled` (T10): when off, no history append and no root
+     penalty.
+   - (TT / aspiration / PVS off-flags already exist from T6/T13.)
+2. **Engine levels.** Bench `--engine LEVEL` selects a monotone feature stack
+   in merge order:
+   `t2` = base (no quiescence, threat terms, TT, repetition, aspiration, PVS);
+   `t3` = t2 + quiescence; `t4` = t3 + threat terms; `t6` = t4 + TT;
+   `t10` = t6 + repetition; `t13` = t10 + aspiration + PVS (= current);
+   `current` is an alias for `t13`. An unknown level is a usage error.
+3. **Mixed mode.** `--ab LEVEL_A LEVEL_B --games N --budget MS --seed S
+   [--small]`: default board is the full 8+8 start; `--small` selects the 2+3
+   bench board. Play N games, ALTERNATING which engine takes each color (so a
+   first-move advantage cancels — it is real: the starter force-wins the 2+3
+   board in 13 plies). Print the existing per-game line plus one JSON summary
+   line: `{"games":N,"aWins":n,"bWins":n,"aWinsAsWhite":n,"aWinsAsBlack":n,
+   "truncated":n,"avgPlies":x,"avgMaxDepthA":x,"avgMaxDepthB":x}` (both
+   engines report depth).
+4. **Flag-correctness tests** (BenchTest or a new EngineLevelTest):
+   - Value identity across speed-only features: on fixed positions + seed, the
+     root score of `t13` with aspiration+PVS off equals `t10`'s equals `t6`'
+     (TT/aspiration/PVS never change the value, only speed).
+   - Eval floor: with threat terms off, the `GameAnalyzer` score on a fixed
+     position equals (value + advancement + DEFENSIVE_PREMIUM + ownMobility/2)
+     by direct formula — pins exactly what `t2`/`t3` evaluate.
+   - Determinism: same level + seed → identical per-game lines across two
+     `--ab X X` runs.
+   - Mirror with the term off: add a threat-terms-off case to
+     EvalSymmetryTest (T8's invariant must survive the flag).
+5. **Baseline measurements** (recorded in findings). Full board, 4950 ms,
+   seed 42, 20 games each: `--ab t13 t6` (isolates T13: aspiration + PVS) and
+   `--ab t13 t4` (isolates T6 + T10 + T13). Report the splits. This is the
+   first real strength measurement of the features that landed since T4.
+
+**Acceptance.**
+1. `--ab t13 t13` (mirror) reproduces mirror behavior: a ~50/50 split and a
+   depth profile matching VisualGame (median 8, max ~9).
+2. The flag-correctness tests are green and the full suite is green ×2
+   (defaults on ⇒ zero behavior change is the regression net).
+3. The baseline numbers are recorded in the plan's findings with the sample-
+   size caveat: ≤20 games per matchup is indicative (≈±10 pp noise at 20
+   games); a delta under 10 pp is not a conclusion.
+
+**Verification.** `./build.sh test` ×2; the two baseline `--ab` runs; report.
+
+**Risk.** Low — additive; defaults preserve current behavior exactly. **Estimate.**
+1 session.
+
+---
+
+### T16 — Move ordering: TT handoff + goal proximity
+
+**Goal.** Attack the full-board depth plateau from the ordering side — the
+strongest remaining lever. PVS and aspiration narrow the window, but pruning
+only pays when the best move is searched first: internal nodes do not inherit
+the previous level's best move (T14 item 1) and quiet moves are a pure shuffle.
+T16 lands (a) TT best-move ordering at internal nodes from ANY stored depth
+and (b) goal-proximity ordering of quiet moves. (If T14 already implemented
+(a) per its checklist, T16 is (b) plus the acceptance gate.)
+
+**Depends on:** T14 (verdicts on items 1–2), T15 (acceptance uses the A/B
+harness).
+
+**Scope.** `src/client/GameTree.java` (the `ttOrderMove` selection +
+`orderMoves`), a new `src/tests/MoveOrderingTest.java`. No eval or protocol
+changes.
+
+**Requirements.**
+
+1. **TT best-move handoff at internal nodes.** Use the TT best move for
+   ORDERING whenever an entry exists (any stored depth, non-null bestMove,
+   still legal). Ordering is a speed heuristic and never changes the value.
+   The ROOT keeps its current rule (strictly-shallower only: a same-depth or
+   deeper root entry would make root ties sticky across moves — pinned
+   behavior). The score-return gate (`usable()` + `depth >=`) is unchanged.
+2. **Goal-proximity ordering of quiet moves.** In `orderMoves`, replace
+   `Collections.shuffle(rest, random)` with a bucket sort by a proximity key,
+   then shuffle WITHIN each bucket (the non-determinism pinned by
+   `testRandomnessForMoreThanOneMove` must survive — its two quiet moves are
+   equidistant, so they share a bucket and still shuffle). Proximity key for a
+   quiet move by the side to move: rows from the DESTINATION row to the
+   opponent's goal row (fewer rows first — a pusher one row from the goal row
+   before one two rows from). Pushers and Pushees are keyed alike (a Pushee's
+   advance matters equally; its legality already requires a friendly Pusher
+   behind). Captures keep their existing priority (MVV-LVA before quiet).
+3. **Flag + tests.** An `orderingEnabled` constructor flag (default on; off =
+   exactly the pre-T16 behavior). In MoveOrderingTest:
+   - Score invariance: five fixed positions × depths {2,3,4}: ordering on vs.
+     off return identical root scores (a full window is exact either way).
+   - Node reduction (the performance pin): full board at depth 4, TT off AND
+     TT on — ordering on visits strictly fewer nodes than off at the same
+     score.
+   - The shuffle pin stays green (testRandomnessForMoreThanOneMove).
+   - The ID handoff fires: on a full-board position, an instrumented count of
+     internal nodes whose ordered first move came from a TT entry is > 0 at
+     levels 2–4 (with the current gate it is ~0 below the root).
+4. **Acceptance gates** (via T15 + the T7 bench):
+   - Full board 4950 ms (VisualGame, seed 42, three runs): median depth ≥ 8
+     (no regression), max ≥ 9; target median 9 / max 10–11.
+   - 2000 ms small-board bench (`--games 10 --budget 2000 --seed 42`): 5/5,
+     13 plies, depth 13 unchanged; avgMsPerMove within noise of the current
+     ~80 (T13 Part B).
+   - **Strength gate:** `--ab t16 t13 --games 20 --budget 4950 --seed 42`
+     (full board): t16 wins ≥ 55% (indicative, per T15's sample-size caveat);
+     record the actual split.
+
+**Verification.** `./build.sh test` ×2; three full-board VisualGame runs; the
+2000 ms bench; the `--ab` strength gate; a findings section in the plan with
+the numbers and an ablation (handoff-only vs proximity-only node counts) so
+the record shows which ordering piece did the work.
+
+**Risk.** Medium — ordering interacts with the pinned shuffle behavior (the
+bucket shuffle preserves it) and with TT entry quality (early levels order by
+stale, shallow best moves; the proximity key must be exact: direction-aware
+row arithmetic, edge files). **Estimate.** 1–1.5 sessions.
+
+---
+
 ## Suggested execution order
 
 ```
@@ -1263,7 +1507,11 @@ T5: do first among engine tasks (0.5 session, removes guesswork for T3/T4)
 T11: wire-format follow-up — needs T5's answers and T9's payload plumbing
 T12: owner follow-up — restore the original wire behavior (H8-first,
      no framing); reverts T11's flip + T9's framing
-T13: after T6 (needs TT + move ordering for PVS to be effective)
+T13: after T6 (needs TT + move ordering for PVS to be effective) — MERGED
+T14 (audit)  ┐ independent of each other; both after T13, run in parallel
+T15 (A/B)    ┘
+T16: after T14 + T15 (T14's verdicts on the plateau suspects; T15's
+     harness is T16's strength gate)
 ```
 
 **Deliberately not planned** (and why):
