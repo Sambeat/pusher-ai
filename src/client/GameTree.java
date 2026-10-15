@@ -34,6 +34,22 @@ public class GameTree {
      */
     private static final int Q_MAX_DEPTH = 8;
 
+    /**
+     * T13 Part A: aspiration-window margin. From the second iterative
+     * deepening level on, the root is searched in a window of
+     * (previous level's score +/- ASPIRATION_MARGIN) instead of full width.
+     * A tight window prunes far more, buying depth at the same budget; the
+     * fail/retry below makes it exact.
+     */
+    private static final int ASPIRATION_MARGIN = 5;
+
+    /**
+     * T13 Part A: cap on the widened aspiration margin. Each aspiration
+     * failure doubles the margin up to this; once it reaches the cap a full
+     * window (which cannot fail) is used.
+     */
+    private static final int MAX_ASPIRATION_MARGIN = 200;
+
     private static GameBoard board = GameBoard.getInstance();
 
     /**
@@ -95,9 +111,26 @@ public class GameTree {
      */
     private TranspositionTable tt;
 
+    // T13 Part A: when false, getBestMoveQuick() searches every level with a
+    // full window (the pre-T13 behavior). The determinism check searches the
+    // same positions with aspiration on and off.
+    private boolean aspirationEnabled;
+
+    // T13 test hook: number of alphaBeta node visits by the most recent
+    // search (main-search and q-nodes alike). A plain counter; the tests use
+    // it to show an aspiration window visits fewer nodes than a full window
+    // on the same position. Reset at the start of each search.
+    private long nodeCount;
+
+    // T13 test hook: number of aspiration-window retries (a fail that
+    // widened the window and re-searched the same level) by the most recent
+    // getBestMoveQuick. Reset at the start of each search; always 0 when
+    // aspiration is disabled.
+    private int aspirationRetries;
+
 
     public GameTree(Player maxPlayer, Player minPlayer){
-        this(maxPlayer, minPlayer, MAX_TIME_MILLIS, null, true, true);
+        this(maxPlayer, minPlayer, MAX_TIME_MILLIS, null, true, true, true);
     }
 
     /**
@@ -112,7 +145,7 @@ public class GameTree {
      *             non-deterministic play.
      */
     public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis, Long seed){
-        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false, true);
+        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false, true, true);
     }
 
     /**
@@ -123,17 +156,32 @@ public class GameTree {
     public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
                     Long seed, boolean transpositionEnabled){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled);
+                transpositionEnabled, true);
+    }
+
+    /**
+     * T13 Part A: like the 5-argument constructor, with the aspiration
+     * windows explicitly enabled or disabled (the determinism check needs
+     * the same search with aspiration off, the pre-T13 full-window
+     * behavior).
+     */
+    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
+                    Long seed, boolean transpositionEnabled,
+                    boolean aspirationEnabled){
+        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
+                transpositionEnabled, aspirationEnabled);
     }
 
     private GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
-                     Long randomSeed, boolean verbose, boolean transpositionEnabled){
+                     Long randomSeed, boolean verbose, boolean transpositionEnabled,
+                     boolean aspirationEnabled){
         this.maxPlayer = maxPlayer;
         this.minPlayer = minPlayer;
         this.timeBudgetMillis = timeBudgetMillis;
         this.randomSeed = randomSeed;
         this.verbose = verbose;
         this.tt = transpositionEnabled ? new TranspositionTable() : null;
+        this.aspirationEnabled = aspirationEnabled;
 
         switch (maxPlayer){
             case WHITE:
@@ -176,6 +224,23 @@ public class GameTree {
 
     public long getTTHits(){
         return tt == null ? 0 : tt.hits();
+    }
+
+    /**
+     * T13 test hook: alphaBeta node visits by the most recent search
+     * (main-search nodes and q-nodes alike). Reset at the start of each
+     * getBestMoveQuick/debugSearch.
+     */
+    public long getNodeCount(){
+        return nodeCount;
+    }
+
+    /**
+     * T13 test hook: aspiration-window retries by the most recent
+     * getBestMoveQuick (0 when aspiration is disabled or no fail occurred).
+     */
+    public int getAspirationRetries(){
+        return aspirationRetries;
     }
 
     /**
@@ -225,6 +290,8 @@ public class GameTree {
     public Move getBestMoveQuick(){
         start = System.currentTimeMillis();
         random = nextRandom();
+        nodeCount = 0;
+        aspirationRetries = 0;
         //T10: remember this arrangement so the root loop can penalize a
         //move that returns to it (shuffle-breaking; root only).
         addRepetitionPosition(arrangementHash(board.getZobristHash(),
@@ -234,13 +301,12 @@ public class GameTree {
         GameStep snapshot = board.createMemento();
 
         Object[] moveInfo = null;
+        int prevScore = 0;
 
         do {
             try {
-                moveInfo = alphaBeta(level, maxPlayer, Integer.MIN_VALUE,
-                        Integer.MAX_VALUE);
+                moveInfo = searchLevelWithAspiration(level, prevScore, snapshot);
                 lastCompletedLevel = level;
-                level++;
             } catch (Exception e){
                 //When minmax can't complete in time, it will leave the board
                 //in a messed up state. We do a revert to its initial state then.
@@ -253,10 +319,105 @@ public class GameTree {
 
             if (verbose)
                 System.out.println(moveInfo[1] + ":" + moveInfo[0]);
+
+            prevScore = (int) moveInfo[0];
+            level++;
         }
         while (System.currentTimeMillis() - start <= timeBudgetMillis);
 
         return moveInfo == null ? null : (Move)moveInfo[1];
+    }
+
+    /**
+     * T13 Part A: search a single iterative-deepening level with aspiration
+     * windows, retrying on a fail. Level 1 (or aspiration disabled) uses a
+     * full window; level 2+ uses (prevScore +/- ASPIRATION_MARGIN) and, on a
+     * fail, widens the margin (doubling up to MAX_ASPIRATION_MARGIN, then a
+     * full window). Each retry reverts the board to the pre-iteration
+     * snapshot. Returns the level's result (score + best move). A forced
+     * win/loss (|score| > 9000) is returned WITHOUT a retry — the caller
+     * breaks the deepening on it. Throws on timeout (the caller reverts the
+     * board).
+     */
+    private Object[] searchLevelWithAspiration(int level, int prevScore,
+                                               GameStep snapshot) throws Exception {
+        // Level 1 has no prior score, so it is full-width; later levels narrow
+        // to prevScore +/- ASPIRATION_MARGIN. When aspiration is disabled every
+        // level is full-width, which is exactly the pre-T13 behavior.
+        int alpha, beta;
+        if (aspirationEnabled && level > 1){
+            alpha = prevScore - ASPIRATION_MARGIN;
+            beta  = prevScore + ASPIRATION_MARGIN;
+        } else {
+            alpha = Integer.MIN_VALUE;
+            beta  = Integer.MAX_VALUE;
+        }
+        int margin = ASPIRATION_MARGIN;
+
+        do {
+            Object[] result = alphaBeta(level, maxPlayer, alpha, beta);
+            int score = (int) result[0];
+
+            // Forced-win/loss cutoff: the forced line is found regardless of
+            // the window width, so no retry (the fail is NOT an aspiration
+            // failure to be widened around) — return it and let the caller
+            // stop deepening.
+            if (score > 9000 || score < -9000)
+                return result;
+
+            // Aspiration failure (level 2+ only): the true score escaped the
+            // window (fail-high >= beta or fail-low <= alpha). Revert to the
+            // pre-iteration snapshot and retry this level with a wider window;
+            // once the margin reaches the cap a full window (which cannot
+            // fail) is used. A timeout during the retry is handled by the
+            // unchanged time check in alphaBeta (it throws; the caller reverts).
+            if (aspirationEnabled && level > 1
+                    && (score >= beta || score <= alpha)){
+                board.revertToState(snapshot);
+                aspirationRetries++;
+                if (margin >= MAX_ASPIRATION_MARGIN){
+                    alpha = Integer.MIN_VALUE;
+                    beta  = Integer.MAX_VALUE;
+                } else {
+                    margin = Math.min(margin * 2, MAX_ASPIRATION_MARGIN);
+                    alpha = prevScore - margin;
+                    beta  = prevScore + margin;
+                }
+                continue;
+            }
+            return result;
+        } while (true);
+    }
+
+    /**
+     * T13 test hook: run the aspiration iterative deepening up to maxDepth
+     * (depth-capped — like getBestMoveQuick but stopping at maxDepth instead
+     * of a timeout) and return the root score. A measurement tool: it does
+     * not append to the repetition history (so no repetition penalty applies)
+     * and the caller should use a fresh tree so the history is empty.
+     * Returns Integer.MIN_VALUE if even level 1 timed out.
+     */
+    public int aspirationScoreAtDepth(int maxDepth){
+        start = System.currentTimeMillis();
+        random = nextRandom();
+        nodeCount = 0;
+        aspirationRetries = 0;
+        GameStep snapshot = board.createMemento();
+        Object[] moveInfo = null;
+        int prevScore = 0;
+        for (int level = 1; level <= maxDepth; level++){
+            try {
+                moveInfo = searchLevelWithAspiration(level, prevScore, snapshot);
+            } catch (Exception e){
+                board.revertToState(snapshot);
+                break;
+            }
+            int score = (int) moveInfo[0];
+            if (score > 9000 || score < -9000)
+                return score;
+            prevScore = score;
+        }
+        return moveInfo == null ? Integer.MIN_VALUE : (int) moveInfo[0];
     }
 
     /**
@@ -267,6 +428,7 @@ public class GameTree {
     public Move getBestMoveQuick(int depth){
         start = System.currentTimeMillis();
         random = nextRandom();
+        nodeCount = 0;
         //T10: same history append as the no-arg overload (both enter the
         //search at the root, where the penalty is applied).
         addRepetitionPosition(arrangementHash(board.getZobristHash(),
@@ -277,6 +439,28 @@ public class GameTree {
             return (Move) result[1];
         } catch (Exception e){
             return null;
+        }
+    }
+
+    /**
+     * T13 test hook: search a fixed depth with an explicit window and report
+     * the root score. The window is parameterized so tests can run the same
+     * position full-width and aspiration-narrow and compare both the score
+     * (must match) and the node count (read via getNodeCount). Like
+     * getBestMoveQuick(int) it runs a single alphaBeta call (no iterative
+     * deepening, no aspiration retry of its own — the caller chooses the
+     * window) and does not append to the repetition history (it is a
+     * measurement tool, not a move chooser). Returns Integer.MIN_VALUE on a
+     * timeout.
+     */
+    public int debugSearchScore(int depth, int alpha, int beta){
+        start = System.currentTimeMillis();
+        random = nextRandom();
+        nodeCount = 0;
+        try {
+            return (Integer) alphaBeta(depth, maxPlayer, alpha, beta)[0];
+        } catch (Exception e){
+            return Integer.MIN_VALUE;
         }
     }
 
@@ -318,6 +502,7 @@ public class GameTree {
 
     private Object[] alphaBeta(int depth, Player player, int alpha, int beta,
                                int qDepth, boolean isRoot) throws Exception {
+        nodeCount++;
         if (System.currentTimeMillis() - start > timeBudgetMillis){
             throw new Exception("Exceeded time");
         }

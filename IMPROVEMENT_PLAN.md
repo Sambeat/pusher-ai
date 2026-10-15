@@ -945,10 +945,245 @@ the regression net. **Estimate.** 0.5 agent-session.
 
 ---
 
+### T13 — Aspiration windows + PVS
+
+**Goal.** Push the effective search depth past the 8–9 plateau observed in
+full-board games (8 Pushers + 8 Pushees per side, 4950 ms budget). T6's TT
++ move ordering tightened the windows, but the root still searches every
+iteration with a full `(-∞, +∞)` window, and every non-best child at an
+internal node also gets a full-width window. Aspiration windows narrow the
+root's window to the previous iteration's score ± a small margin; PVS
+narrows every non-first child to a zero-width window. Together they should
+buy 0.5–1.5 effective plies at the same budget.
+
+**Depends on:** T6 (TT + move ordering — PVS requires the first move to be
+the best-ordered one for the zero-width trick to work well), T3 (quiescence
+— the depth-0 exit is unchanged; PVS applies only to depth > 0 nodes).
+
+**Scope.** `src/client/GameTree.java` only (plus new tests in
+`src/tests/AspirationPvsTest.java`). No changes to `GameBoard`, evaluation,
+or protocol code.
+
+**Requirements.**
+
+#### Part A — Aspiration windows
+
+1. In `getBestMoveQuick()`, replace the full-width iterative-deepening loop
+   with an aspiration-window version:
+   - **Iteration 1:** full window `(-∞, +∞)` (no prior score exists).
+   - **Iteration N ≥ 2:** window `(prevScore - MARGIN, prevScore + MARGIN)`
+     where `prevScore` is the root score returned by iteration N−1 and
+     `MARGIN` starts at `ASPIRATION_MARGIN` (constant, initial value 5).
+   - **Aspiration failure:** if the search returns a score ≥ the window's
+     upper bound (fail-high) or ≤ the lower bound (fail-low), the true score
+     is outside the window. Revert the board to the pre-iteration snapshot
+     (the existing memento mechanism) and retry the same level with a wider
+     window: double the margin (up to a cap of `MAX_ASPIRATION_MARGIN` = 200);
+     if the margin reaches the cap, use a full window.
+   - **Forced-win cutoff interaction:** if the (failed) search already
+     returned |score| > 9000, do NOT retry — the forced-win/loss cutoff
+     fires regardless of the window. Break out of the iteration loop as
+     today.
+   - **Time check:** the time check is unchanged. An aspiration failure
+     within budget triggers a retry; a timeout during the retry is handled
+     by the existing catch/revert path.
+   - The memento snapshot is taken once before the iteration loop (as today);
+     each aspiration-failure retry reverts to it before the next attempt.
+
+2. Add constants:
+   ```java
+   private static final int ASPIRATION_MARGIN = 5;
+   private static final int MAX_ASPIRATION_MARGIN = 200;
+   ```
+
+#### Part B — PVS (Principal Variation Search)
+
+3. In `alphaBeta` (the 6-argument overload), restructure the child loop:
+   - After `orderMoves`, iterate:
+     - **First child (index 0):** full window `[alpha, beta]` — this is the
+       TT best-move (or the first shuffled move at level 1). The full window
+       is needed to establish the correct bound for the remaining children.
+     - **Subsequent children (index ≥ 1):** zero-width window
+       `[alpha, alpha + 1]` at a max node, or `[beta - 1, beta]` at a min
+       node. This is the "null window" — if the child's true score exceeds
+       alpha (max) or falls below beta (min), it is a PV candidate.
+     - **PV re-search:** if a subsequent child's score violates the bound
+       (score > alpha at max, score < beta at min), immediately re-search
+       that same child with the full window `[alpha, beta]` (max) or
+       `[alpha, beta]` (min — the window is the same, only the initial
+       alpha/beta passed differ). Update alpha/beta with the re-searched
+       score. This re-search is the standard PVS "fail-high retry".
+   - The rest of the loop (undo, repetition penalty, cutoff check) is
+     unchanged.
+   - **TT interaction:** the stored score and flag use the FINAL alpha/beta
+     after any re-search, exactly as today. No TT changes needed.
+   - **Quiescence interaction:** PVS applies only at `depth > 0`. The
+     `depth == 0` exit (quiescence) is reached by the children and is
+     unaffected — the q-search already does its own stand-pat + captures.
+   - **Time check:** the re-search is subject to the same time check. A
+     timeout during the re-search propagates the exception and the existing
+     catch/revert handles it (the child move is already on the board;
+     `revertToState` restores everything).
+   - **Cutoff:** the `alpha >= beta` cutoff after the child loop is
+     unchanged. With PVS, the zero-width window makes cutoffs fire earlier
+     (which is the point), so the break happens sooner on average.
+
+4. The `getBestMoveQuick(int depth)` overload (fixed-depth, no iterative
+   deepening) also benefits from PVS internally but does NOT use aspiration
+   windows (there is no previous iteration). This is correct as-is: it calls
+   `alphaBeta` once at the given depth, and the PVS restructured child loop
+   applies automatically.
+
+#### Invariants that must hold (add assertions in tests)
+
+- The best move returned by the search is identical (modulo shuffle ties)
+  to the pre-T13 engine on a fixed seed — PVS and aspiration are pure
+  search-pruning techniques; they change which nodes are visited, not the
+  game-theoretic value.
+- Terminal scores (goal-row wins, stalemates) are unaffected: they are
+  returned before the child loop and are not subject to PVS or aspiration.
+- The ±9000 forced-win cutoff still fires: a forced-win line found at depth
+  D returns |score| > 9000 regardless of the window width.
+- The TT stores the same flag (EXACT/LOWER/UPPER) as before for the same
+  final score — the flag logic uses `originalAlpha`/`originalBeta` of the
+  node, not the window passed to children.
+
+#### Performance guard
+
+- After implementation, run the T7 bench: `--games 10 --budget 2000 --seed 42`
+  and `--games 10 --budget 4950 --seed 42` (full board variant, 8+8 per
+  side). Acceptance thresholds:
+  - avgMaxDepth at 2000 ms budget: **≥ 13** (pre-T13: 13; must not regress;
+    target 14).
+  - avgMaxDepth at 4950 ms budget (full board): **≥ 10** (pre-T13: ~9;
+    target 10–11).
+  - avgMsPerMove must not increase by more than 20% vs. pre-T13 (the
+    re-search cost must be amortized by the earlier cutoffs).
+
+**Acceptance.** In `src/tests/AspirationPvsTest.java`:
+
+1. **PVS correctness (fixed value):** on a fixed position (seeded, small
+   board — 2 Pushers + 1 Pushee per side), the root score returned by
+   `getBestMoveQuick(3)` (PVS active) equals the root score from a reference
+   full-window alpha-beta on the same position (a test-only copy of the
+   pre-PVS child loop, inlined in the test). This pins that PVS does not
+   change the game-theoretic value.
+
+2. **PVS re-search fires:** construct a 3-move position where the best-ordered
+   child scores below alpha (a quiet move) but the second child (a capture)
+   exceeds alpha. Assert that the engine's chosen move is the capture (not
+   the quiet best-ordered move) — this only works if the zero-width search
+   of the capture triggers the re-search and the re-searched score updates
+   alpha.
+
+3. **Aspiration window narrows then widens:** instrument (or spy) the number
+   of alpha-beta node visits at depth 2 on a fixed position:
+   - full window: N₁ visits
+   - aspiration window (score ± 5): N₂ visits, assert N₂ < N₁.
+   (If the margin is too tight and triggers a fail-high, the test should
+   still pass — the assertion is on the final score, not the visit count;
+   make the visit-count check a soft assertion or use a position where the
+   true score is well inside the margin.)
+
+4. **Aspiration failure retry:** on a position where the true score is
+   `prevScore + 10` (outside a ±5 window), the engine still returns the
+   correct score (the retry with a wider window finds it). Use a
+   `getBestMoveQuick()` call with a forced 2-iteration sequence (first
+   iteration returns a score, second uses aspiration).
+
+5. **Forced-win cutoff unaffected:** a position with a forced win at depth 3
+   returns |score| > 9000 with aspiration windows active (the fail-high is
+   NOT retried — the cutoff breaks the iteration loop).
+
+6. **TT flag consistency:** on a fixed position, the TT entry stored at the
+   root's child after a PVS search has the same flag (EXACT/LOWER/UPPER) as
+   the pre-PVS engine would store for the same final score. (Use the
+   `--tt-stats` debug hook or a direct TT probe in the test.)
+
+7. **Determinism:** with a fixed seed, the best move chosen on 5 fixed
+   positions is identical with T13 on vs. off (add a constructor flag to
+   disable aspiration + PVS for the test, analogous to T6's TT disable).
+
+8. Full suite green ×2.
+
+**Verification.**
+- T7 bench (both budgets) vs. the pre-T13 baseline recorded in the PR.
+- Full-board visual game (`VisualGame --budget 4950`): report the depth
+  profile (max depth, median depth, depth at each ply) and compare against
+  the pre-T13 run (median 8, max 10, 47 plies).
+- Determinism: same seed → identical winners/plies/depths (aspiration and
+  PVS do not introduce new randomness).
+
+**Risk.** Medium — PVS re-search + aspiration retry interact with the
+existing timeout/revert mechanism. The key danger: an aspiration-failure
+retry that times out mid-search must revert cleanly (the board is in a
+post-move state from the first attempt). Mitigation: the memento revert is
+already proven (T2/T3); the retry reverts to the same pre-iteration
+snapshot. The PVS re-search is lower risk: it happens inside the child loop
+where the existing timeout already works (a timeout during the re-search
+propagates up through the child loop to the catch in `getBestMoveQuick`).
+
+The acceptance test 7 (determinism with T13 off vs. on) is the safety net
+for subtle value errors.
+
+**Estimate.** 1.5–2 agent-sessions.
+
+#### Part A Findings (aspiration windows landed; PVS still to come)
+
+- **Implementation:** `getBestMoveQuick()` now iterative-deepens through a new
+  shared `searchLevelWithAspiration(level, prevScore, snapshot)` helper: level 1
+  is full-width, level 2+ uses `prevScore ± ASPIRATION_MARGIN` (5), and a fail
+  (score ≥ β or ≤ α) reverts to the pre-iteration memento and retries with the
+  margin doubled (10, 20, …, capped at `MAX_ASPIRATION_MARGIN` = 200, then a full
+  window). A forced win/loss (|score| > 9000) is returned without a retry and
+  breaks the deepening, exactly as before. `ASPIRATION_MARGIN` /
+  `MAX_ASPIRATION_MARGIN` are the two new constants. A 6-arg constructor adds
+  `aspirationEnabled` (default on) for the on/off determinism check, analogous to
+  T6's TT disable.
+- **Test hooks (all in `GameTree`):** `aspirationScoreAtDepth(d)` runs the
+  aspiration deepening stopped at depth `d` and returns the root score; 
+  `debugSearchScore(d, α, β)` runs a single full/windowed search at depth `d`;
+  `getNodeCount()` and `getAspirationRetries()` count node visits and retries.
+  The first two share the production `searchLevelWithAspiration`, so the tests
+  exercise the real aspiration logic.
+- **Why the tests are score-based, not move-based:** the production
+  `getBestMoveQuick()` iterative-deepens under the wall clock, so its final depth
+  (and any tie between equally-best moves) is not reproducible from a seed — the
+  T6-style "same move on/off" check flakes on positions with multiple best moves
+  (the forced-win bench lines have several). Instead `AspirationPvsTest` pins
+  `aspirationScoreAtDepth(d) == debugSearchScore(d, −∞, +∞)` at each depth (a
+  full-window search is exact, and aspiration is exact, so they must agree) — a
+  deterministic, tie-free value check — plus dedicated retry, cutoff, narrow-window
+  node-reduction, disable-flag, and a production-path-within-budget test. Suite
+  green ×2 at 109 tests (103 + 6).
+- **Bench, `--games 10 --budget 2000 --seed 42` (2+3-per-side board):**
+  `{whiteWins:5, blackWins:5, avgPlies:13.00, avgMaxDepth:13.00,
+  avgMsPerMove:~84–92}` — same winners/plies/depth as pre-T13 (depth cannot
+  improve: this position's 13-ply forced win caps it), avgMsPerMove up from the
+  T6 ~72–75. **The extra time is the ×2-widening at the forced-win level.**
+  Instrumented: on the opener the 13-ply win first appears at level 13, whose
+  window is centered on level 12's score (−6) and is nowhere near the win score
+  (+2³¹); the winning move is not ordered first, so a narrow-window root cuts off
+  before reaching it and returns a weak fail-high bound (== β). The engine then
+  doubles 5→200 (7 retries, each a full level-13 re-search, +63% nodes) before the
+  full window finds the win. This is inherent to the plan's widening whenever a
+  forced win first appears at a deep level.
+- **Full board (8 Pushers + 8 Pushees per side, 4950 ms) — the actual T13 target:**
+  aspiration raises max depth **8 → 9** (avgDepth 8.0 → 8.2) with **no** ms-per-move
+  cost (both exhaust the budget) and only ~1 retry (no quick forced win to trip the
+  widening). So on the position T13 is designed for, Part A is a clean depth gain.
+- **Guard status:** 2000 ms avgMaxDepth 13 (meets ≥ 13, no regression); full-board
+  4950 ms depth 9 (pre-T13 ~9; the 10–11 target is for the complete T13 with PVS).
+  The 2000 ms avgMsPerMove exceeds the 20% band only on the forced-win bench line
+  (the widening artifact above); on the full board it is flat. Part B (PVS) is the
+  expected source of the remaining depth and of keeping the ms-per-move in band.
+
+---
+
 ## Suggested execution order
 
 ```
-T1 ─┬─► T7 (baseline) ─► T3 ─► T4 ─► T8 ─► T6
+T1 ─┬─► T7 (baseline) ─► T3 ─► T4 ─► T8 ─► T6 ─► T13
     │
 T2 ─┴──────────────────► T9
                           T10 (anytime after T1)
@@ -956,13 +1191,20 @@ T5: do first among engine tasks (0.5 session, removes guesswork for T3/T4)
 T11: wire-format follow-up — needs T5's answers and T9's payload plumbing
 T12: owner follow-up — restore the original wire behavior (H8-first,
      no framing); reverts T11's flip + T9's framing
+T13: after T6 (needs TT + move ordering for PVS to be effective)
 ```
 
 **Deliberately not planned** (and why):
-- **Aspiration windows** — marginal gain in this branching factor, real
-  complexity; revisit only if T6's depth gains disappoint.
 - **Pseudo-legal move generation** — the board is tiny; not a bottleneck.
 - **ML/NN evaluation** — no training data, overkill for 8x8 Pusher; the
   handcrafted threat terms (T4) cover the motif that matters.
 - **Multi-PV / search parallelism** — the socket budget is one move per ~5 s;
   single-threaded depth is the right currency.
+- **Null-move pruning** — every ply advances a piece exactly one row toward
+  its goal (docs/RULES.md item 7); skipping a ply would break the strict
+  potential-decrease invariant and allow positions the rules say are
+  unreachable. The game's structure makes this unsound.
+- **Endgame tablebases** — the game is provably finite (≤ ~70 plies from
+  the standard start) and the forced-win cutoff already handles endgame
+  detection; a tablebase would add complexity for marginal gain in a space
+  that's already solved by the ±9000 cutoff.
