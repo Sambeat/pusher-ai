@@ -197,12 +197,35 @@ public class PusherApplication {
 			return;
 		}
 
-		String moveParameters = move.toString();
+		String moveParameters = toServerMoveString(move);
 		output.write(moveParameters.getBytes(), 0, moveParameters.length());
 		output.flush();
 
-		System.out.println(move);
+		System.out.println(moveParameters);
 		System.out.println(board);
+	}
+
+	/**
+	 * T11: encode a move in the server's 7-character format (confirmed by the
+	 * server owner, docs/RULES.md item 6): origin column + row at indexes 0-1,
+	 * destination column + row at indexes 5-6, three padding spaces between
+	 * (assumed — the server is believed to read only the fixed positions, as
+	 * the client's own parser does; see the doc's open questions). Row digits
+	 * are 1-8 with 1 = row 0 (the top row). Exposed for tests.
+	 *
+	 * @param move The move to encode.
+	 * @return e.g. "D2   E3" for D2 -> E3.
+	 */
+	public static String toServerMoveString(Move move) {
+		char[] s = new char[7];
+		s[0] = (char) ('A' + move.getPieceLocation().getColumn());
+		s[1] = (char) ('1' + move.getPieceLocation().getRow());
+		s[2] = ' ';
+		s[3] = ' ';
+		s[4] = ' ';
+		s[5] = (char) ('A' + move.getDestination().getColumn());
+		s[6] = (char) ('1' + move.getDestination().getRow());
+		return new String(s);
 	}
 
 	/**
@@ -336,9 +359,10 @@ public class PusherApplication {
 	 * Parse and validate a board payload (T9): whitespace-separated
 	 * integers, exactly 64 of them, each 0..4 (0 = empty, 1 = Black Pushee,
 	 * 2 = Black Pusher, 3 = White Pushee, 4 = White Pusher). The tokens
-	 * address the squares starting at H8 (row 7, col 7), right-to-left, then
-	 * bottom-to-top: the 1st token is H8, the 64th A1 (docs/RULES.md item 5).
-	 * Exposed for tests.
+	 * address the squares starting at A1 (row 0, col 0) — the top-left corner
+	 * — left-to-right, then top-to-bottom: the 1st token is A1, the 64th H8
+	 * (server-confirmed orientation, T11, docs/RULES.md item 5). Exposed for
+	 * tests.
 	 *
 	 * @param payload The raw payload line.
 	 * @return the 64 values, or null if the payload is not exactly 64
@@ -370,12 +394,14 @@ public class PusherApplication {
 
 	/**
 	 * Place the validated 64 board values on the (already reset) board:
-	 * token 0 at H8 (row 7, col 7), right-to-left, then bottom-to-top.
+	 * token 0 at A1 (row 0, col 0) — the top-left corner — left-to-right,
+	 * then top-to-bottom: the 1st token is A1, the 8th H1, the 9th A2, ..., the
+	 * 64th H8 (server-confirmed orientation, T11, docs/RULES.md item 5).
 	 *
 	 * @param values The validated payload values (64 entries, each 0..4).
 	 */
 	static private void placeBoard(int[] values) {
-		int x = 7, y = 7;
+		int x = 0, y = 0;
 		for (int value : values) {
 
 			switch (value) {
@@ -397,10 +423,10 @@ public class PusherApplication {
 				break;
 			}
 
-			x--;
-			if (x == -1) {
-				x = 7;
-				y--;
+			x++;
+			if (x == GameBoard.GAME_BOARD_LENGTH) {
+				x = 0;
+				y++;
 			}
 		}
 	}
