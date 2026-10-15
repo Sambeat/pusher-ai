@@ -29,7 +29,7 @@ What it does:
    Central **only if missing** (pinned exact versions).
 2. Compiles all of `src/` into `out/`.
 3. Runs every test class under `src/tests` via `org.junit.runner.JUnitCore` and
-   prints the JUnit summary line (expected: `OK (42 tests)`).
+   prints the JUnit summary line (expected: `OK (103 tests)`).
 
 It exits non-zero on a missing toolchain, a compile error, or any test failure.
 `lib/` and `out/` are git-ignored, so this works from a fresh clone.
