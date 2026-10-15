@@ -55,7 +55,7 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 (if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
 ./build.sh test
-# Expected: OK (105 tests). GameTreeTest takes ~5 s (real time-limited searches);
+# Expected: OK (108 tests). GameTreeTest takes ~5 s (real time-limited searches);
 # PusherApplicationTest drives full-budget searches (a few seconds).
 # (Count history: 42 at T1, +20 from T5's RulesContractTest, +2 from T7's
 # BenchTest, +3 from T3's QuiescenceTest, +14 from T4's ThreatEvalTest,
@@ -63,7 +63,8 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 # +4 from T8: 3 EvalSymmetryTest + 1 ThreatEvalTest mirror test,
 # +7 from T6's TranspositionTableTest,
 # +6 from T9: 3 PusherApplicationTest framing tests + 3 readLine/
-# parseBoardPayload unit tests.)
+# parseBoardPayload unit tests,
+# +3 from T10's RepetitionTest: 2 engine + 1 app-level.)
 ```
 JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
 sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
@@ -713,6 +714,54 @@ the client burns CPU forever.
 **Verification.** Full suite green ×2; T7 bench: no game exceeds the ply cap.
 
 **Risk.** Low-medium. **Estimate.** 1 agent-session.
+
+**Findings (post-T10 engine; full suite green ×2 at 108 tests):**
+- **The position identifier is T6's Zobrist key with the side-to-move bit
+  removed** (`GameTree.arrangementHash`, a conditional XOR of
+  `TranspositionTable.sideToMoveKey()`, which the board carries exactly when
+  it is BLACK's turn). With the full key the guard could never fire in real
+  play: every position a tree is asked to move from has the AI to move, while
+  a root child has the OPPONENT to move, so full-key child hashes never match
+  the history. The arrangement-only key is what "the game has been in this
+  position before" means for shuffle-breaking.
+- The history (bounded `REPETITION_HISTORY_LIMIT` = 60, oldest evicted) is
+  appended in BOTH `getBestMoveQuick` overloads at search start; the penalty
+  (`REPETITION_PENALTY` = 5) is applied in the `alphaBeta` root loop only,
+  after the child returns and before the undo, so the checked hash is exactly
+  the resulting position's. The damped root score stored in the TT is
+  harmless: the root never returns stored scores and only takes ordering from
+  strictly shallower entries (T6), and internal nodes are never damped.
+- **The penalty can never override terminal logic**: terminal child scores
+  are ~±2^31 minus the turn number, so a forced win repeats or not, it beats
+  every non-terminal score (realistic evals stay below |9000|), and between
+  two winning moves the non-repeating one is preferred (the 5-point gap). Pinned
+  by `RepetitionTest.aForcedWinIsNeverSacrificedToAvoidRepetition` (unique
+  winning push, its child position injected into the history — the engine
+  still plays it). `BugProofTest` stays green.
+- App level: `PusherApplication.plies` counts applied plies (own pending
+  move + opponent move per `'3'`; both via `registerPly`), reset in
+  `beginNewGame` (so a rejected T9 board payload leaves the running count
+  intact, consistent with its resync semantics); at `MAX_PLIES` (300) the
+  client logs a warning and keeps playing — no draw is declared, because the
+  protocol has no known draw command (now docs/RULES.md open question 7).
+  Both fields are public non-final statics so the app-level test exercises
+  the warning path with a small cap (restored in `finally`).
+- The plan's "package-visible setter" had to be `public` (`setRepetitionHistory`):
+  the tests live in the `tests` package, one package away from `client`.
+- `RepetitionTest` (3 tests; suite 105 → 108): (a) a position where the
+  unique natural best move (static eval 15 vs 14, hand-computed in the test)
+  returns to an injected seen arrangement — with the history the engine
+  plays a non-repeating move; (b) the forced-win pin above; (c) app level: a
+  collision-free two-piece race with `MAX_PLIES = 4` — the warning is logged
+  at the cap (asserted on captured stdout) and the app keeps answering past
+  it. `AppSession` became package-visible for (c) to reuse.
+- **T7 bench (verification):** `--games 10 --budget 2000 --seed 42` →
+  `{"games":10,"whiteWins":5,"blackWins":5,"avgPlies":13.00,
+  "avgMaxDepth":13.00,"avgMsPerMove":~71-73}` — identical winners/plies/
+  depths to the T6 baseline across repeated same-seed runs (deterministic),
+  sanity seed 7 (6 games): 3/3, 13.00 plies, 13.00 depth. No game comes
+  close to the 300-ply cap, and the penalty has no measurable effect on the
+  standard bench position (the 13-ply forced line contains no repetitions).
 
 ---
 
