@@ -82,10 +82,10 @@ public class VisualGame {
     }
 
     private static String describeMove(Move move) {
-        return coord(move.getPieceLocation().getRow(),
-                move.getPieceLocation().getColumn()) + " → "
-                + coord(move.getDestination().getRow(),
-                        move.getDestination().getColumn());
+        return coord(move.pieceLocation().getRow(),
+                move.pieceLocation().getColumn()) + " → "
+                + coord(move.destination().getRow(),
+                        move.destination().getColumn());
     }
 
     private static String coord(int row, int col) {

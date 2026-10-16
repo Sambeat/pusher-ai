@@ -119,11 +119,11 @@ public class TranspositionTableTest {
 
         TranspositionTable.Entry entry = tt.probe(0x1234L, 7);
         assertNotNull(entry);
-        assertEquals(0x1234L, entry.hash);
-        assertEquals(3, entry.depth);
-        assertEquals(42, entry.score);
-        assertEquals(TranspositionTable.Flag.EXACT, entry.flag);
-        assertNull(entry.bestMove);
+        assertEquals(0x1234L, entry.hash());
+        assertEquals(3, entry.depth());
+        assertEquals(42, entry.score());
+        assertEquals(TranspositionTable.Flag.EXACT, entry.flag());
+        assertNull(entry.bestMove());
 
         assertNull(tt.probe(0x1234L, 8));
         assertNull(tt.probe(0x9999L, 7));
@@ -138,11 +138,11 @@ public class TranspositionTableTest {
         tt.store(key, 5, 4, 100, TranspositionTable.Flag.EXACT, null);
         tt.store(key, 5, 2, 55, TranspositionTable.Flag.UPPER, null);
         assertEquals("a shallower entry must not replace a deeper one",
-                100, tt.probe(key, 5).score);
+                100, tt.probe(key, 5).score());
 
         tt.store(key, 5, 6, 77, TranspositionTable.Flag.LOWER, null);
         assertEquals("a deeper entry replaces the older one",
-                77, tt.probe(key, 5).score);
+                77, tt.probe(key, 5).score());
     }
 
     /**
@@ -160,20 +160,20 @@ public class TranspositionTableTest {
         tt.store(key, 3, 5, 10, TranspositionTable.Flag.EXACT, null);
         // Equal depth: replaces (last write wins).
         tt.store(key, 3, 5, 20, TranspositionTable.Flag.EXACT, null);
-        assertEquals(20, tt.probe(key, 3).score);
+        assertEquals(20, tt.probe(key, 3).score());
         // A deeper entry replaces the equal-depth one...
         tt.store(key, 3, 7, 30, TranspositionTable.Flag.EXACT, null);
-        assertEquals(30, tt.probe(key, 3).score);
+        assertEquals(30, tt.probe(key, 3).score());
         // ...and survives repeated shallower stores (no oscillation,
         // no eviction of the deeper entry).
         for (int i = 0; i < 4; i++)
             tt.store(key, 3, 4, 40 + i, TranspositionTable.Flag.UPPER, null);
-        assertEquals(30, tt.probe(key, 3).score);
-        assertEquals(7, tt.probe(key, 3).depth);
+        assertEquals(30, tt.probe(key, 3).score());
+        assertEquals(7, tt.probe(key, 3).depth());
         // A still-deeper entry takes over.
         tt.store(key, 3, 9, 50, TranspositionTable.Flag.LOWER, null);
-        assertEquals(50, tt.probe(key, 3).score);
-        assertEquals(9, tt.probe(key, 3).depth);
+        assertEquals(50, tt.probe(key, 3).score());
+        assertEquals(9, tt.probe(key, 3).depth());
     }
 
     /**

@@ -136,7 +136,7 @@ public class GameTreeTest {
         for (int i = 0; i < 5; i++) {
             Move chosenMove = gameTree.getBestMoveQuick();
 
-            if (chosenMove.getPieceLocation() == board.getSquare(0, 1))
+            if (chosenMove.pieceLocation() == board.getSquare(0, 1))
                 timesPiece1Moved++;
             else
                 timesPiece2Moved++;

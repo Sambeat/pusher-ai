@@ -818,9 +818,9 @@ public class GameTree {
         // at the root).
         if (!isRoot
                 && ttEntry != null
-                && ttEntry.depth >= depth
+                && ttEntry.depth() >= depth
                 && TranspositionTable.usable(ttEntry, alpha, beta))
-            return new ScoreAndMove(ttEntry.score, ttEntry.bestMove);
+            return new ScoreAndMove(ttEntry.score(), ttEntry.bestMove());
 
         Player winner = board.winner();
 
@@ -893,19 +893,19 @@ public class GameTree {
         // q-search as well.
         Move ttOrderMove;
         if (isRoot)
-            ttOrderMove = (ttEntry != null && ttEntry.depth < depth)
-                    ? ttEntry.bestMove : null;
+            ttOrderMove = (ttEntry != null && ttEntry.depth() < depth)
+                    ? ttEntry.bestMove() : null;
         else if (ttMoveHandoff)
             // T14 item 1 (the fixed behavior): the standard ID handoff — the
             // previous level's best move (the entry one depth shallower than
             // the probe) plus same-depth/deeper entries, at any stored depth.
             // Measured on the full board: -47% nodes at depth 9 (1.91M vs
             // 3.62M at seed 42), scores unchanged (pinned in GameTreeTest).
-            ttOrderMove = (ttEntry != null && ttEntry.bestMove != null)
-                    ? ttEntry.bestMove : null;
+            ttOrderMove = (ttEntry != null && ttEntry.bestMove() != null)
+                    ? ttEntry.bestMove() : null;
         else
-            ttOrderMove = (ttEntry != null && ttEntry.depth >= depth)
-                    ? ttEntry.bestMove : null;
+            ttOrderMove = (ttEntry != null && ttEntry.depth() >= depth)
+                    ? ttEntry.bestMove() : null;
         if (!isRoot && depth > 0
                 && ttOrderMove != null
                 && legalMoves.contains(ttOrderMove))
@@ -1076,10 +1076,10 @@ public class GameTree {
         // MVV-LVA: victim value / own value, descending. Cross-multiplying
         // keeps this integer-exact (the values are 3 and 7).
         captures.sort((a, b) -> {
-            int victimA = a.getDestination().getPiece().getScoreValue();
-            int ownA = a.getPieceLocation().getPiece().getScoreValue();
-            int victimB = b.getDestination().getPiece().getScoreValue();
-            int ownB = b.getPieceLocation().getPiece().getScoreValue();
+            int victimA = a.destination().getPiece().getScoreValue();
+            int ownA = a.pieceLocation().getPiece().getScoreValue();
+            int victimB = b.destination().getPiece().getScoreValue();
+            int ownB = b.pieceLocation().getPiece().getScoreValue();
             return Integer.compare(victimB * ownA, victimA * ownB);
         });
 
@@ -1123,7 +1123,7 @@ public class GameTree {
     private int proximityKey(Move move, Player player){
         int goalRow = (player == Player.WHITE)
                 ? GameBoard.WHITE_GOAL_ROW : GameBoard.BLACK_GOAL_ROW;
-        return (goalRow - move.getDestination().getRow()) * player.direction();
+        return (goalRow - move.destination().getRow()) * player.direction();
     }
 
     /**
@@ -1225,7 +1225,7 @@ public class GameTree {
      * even if that ever stops being the case.
      */
     private static boolean isCapture(Move move, Player player){
-        Piece destinationPiece = move.getDestination().getPiece();
+        Piece destinationPiece = move.destination().getPiece();
         return destinationPiece != null
                 && destinationPiece.getOwner() != player;
     }
