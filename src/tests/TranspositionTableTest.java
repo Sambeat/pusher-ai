@@ -2,6 +2,7 @@ package tests;
 
 import client.GameStep;
 import client.GameTree;
+import client.GameTreeConfig;
 import client.TranspositionTable;
 import game.*;
 import org.junit.Test;
@@ -220,9 +221,11 @@ public class TranspositionTableTest {
             Move expected = expectedMove(i);
 
             GameTree ttOn = new GameTree(maxPlayer(i), minPlayer(i),
-                    GameTree.MAX_TIME_MILLIS, seed, true);
+                    new GameTreeConfig(GameTree.MAX_TIME_MILLIS, seed, true,
+                            true, true, true, true, true, true, true));
             GameTree ttOff = new GameTree(maxPlayer(i), minPlayer(i),
-                    GameTree.MAX_TIME_MILLIS, seed, false);
+                    new GameTreeConfig(GameTree.MAX_TIME_MILLIS, seed, false,
+                            true, true, true, true, true, true, true));
 
             Move withTT = ttOn.getBestMoveQuick(depth);
             Move withoutTT = ttOff.getBestMoveQuick(depth);

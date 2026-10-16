@@ -1,6 +1,7 @@
 package tests;
 
 import client.GameTree;
+import client.GameTreeConfig;
 import client.TranspositionTable;
 import game.*;
 import org.junit.*;
@@ -201,15 +202,17 @@ public class AspirationPvsTest {
         final int depth = 4;
 
         setDefaultStart();
-        GameTree fullTree = new GameTree(Player.WHITE, Player.BLACK, BUDGET, seed,
-                false, true, false);
+        GameTree fullTree = new GameTree(Player.WHITE, Player.BLACK,
+                new GameTreeConfig(BUDGET, seed, false, true, false,
+                        true, true, true, true, true));
         int fullScore = fullTree.debugSearchScore(depth,
                 Integer.MIN_VALUE, Integer.MAX_VALUE);
         long fullNodes = fullTree.getNodeCount();
 
         setDefaultStart();
-        GameTree narrowTree = new GameTree(Player.WHITE, Player.BLACK, BUDGET, seed,
-                false, true, false);
+        GameTree narrowTree = new GameTree(Player.WHITE, Player.BLACK,
+                new GameTreeConfig(BUDGET, seed, false, true, false,
+                        true, true, true, true, true));
         int narrowScore = narrowTree.debugSearchScore(depth,
                 fullScore - 5, fullScore + 5);
         long narrowNodes = narrowTree.getNodeCount();
@@ -238,13 +241,16 @@ public class AspirationPvsTest {
         final int depth = 4;
 
         setRace();
-        GameTree withAspiration = new GameTree(Player.WHITE, Player.BLACK, BUDGET, seed,
-                true, true);
+        GameTree withAspiration = new GameTree(Player.WHITE, Player.BLACK,
+                new GameTreeConfig(BUDGET, seed, true, true, true, true,
+                        true, true, true, true));
         int score = withAspiration.aspirationScoreAtDepth(depth);
 
         setRace();
-        int reference = new GameTree(Player.WHITE, Player.BLACK, BUDGET, seed,
-                true, false).debugSearchScore(depth,
+        int reference = new GameTree(Player.WHITE, Player.BLACK,
+                new GameTreeConfig(BUDGET, seed, true, false, true, true,
+                        true, true, true, true))
+                .debugSearchScore(depth,
                 Integer.MIN_VALUE, Integer.MAX_VALUE);
 
         assertTrue("expected this position to force an aspiration retry, but none "
@@ -269,8 +275,10 @@ public class AspirationPvsTest {
         final int depth = 3;
 
         setWhiteForcedWin();
-        int score = new GameTree(Player.WHITE, Player.BLACK, BUDGET, seed,
-                true, true).aspirationScoreAtDepth(depth);
+        int score = new GameTree(Player.WHITE, Player.BLACK,
+                new GameTreeConfig(BUDGET, seed, true, true, true, true,
+                        true, true, true, true))
+                .aspirationScoreAtDepth(depth);
 
         assertTrue("the forced win must be found (|score| > 9000), got " + score,
                 Math.abs(score) > 9000);
@@ -293,15 +301,17 @@ public class AspirationPvsTest {
         final int depth = 4;
 
         setRace();
-        GameTree enabled = new GameTree(Player.WHITE, Player.BLACK, BUDGET, seed,
-                true, true);
+        GameTree enabled = new GameTree(Player.WHITE, Player.BLACK,
+                new GameTreeConfig(BUDGET, seed, true, true, true, true,
+                        true, true, true, true));
         int enabledScore = enabled.aspirationScoreAtDepth(depth);
         assertTrue("sanity: aspiration is on and does retry here",
                 enabled.getAspirationRetries() > 0);
 
         setRace();
-        GameTree disabled = new GameTree(Player.WHITE, Player.BLACK, BUDGET, seed,
-                true, false);
+        GameTree disabled = new GameTree(Player.WHITE, Player.BLACK,
+                new GameTreeConfig(BUDGET, seed, true, false, true, true,
+                        true, true, true, true));
         int disabledScore = disabled.aspirationScoreAtDepth(depth);
         assertEquals(0, disabled.getAspirationRetries());
 
@@ -357,8 +367,10 @@ public class AspirationPvsTest {
                              boolean aspirationEnabled, boolean pvsEnabled){
         setPos(which);
         Player max = board.getCurrentPlayer();
-        return new GameTree(max, max.other(), BUDGET, seed, transpositionEnabled,
-                aspirationEnabled, pvsEnabled);
+        return new GameTree(max, max.other(),
+                new GameTreeConfig(BUDGET, seed, transpositionEnabled,
+                        aspirationEnabled, pvsEnabled, true, true, true,
+                        true, true));
     }
 
     /** A diagonal move onto an enemy square (the tests cannot reach

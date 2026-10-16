@@ -2,6 +2,7 @@ package tests;
 
 import client.GameAnalyzer;
 import client.GameTree;
+import client.GameTreeConfig;
 import client.TranspositionTable;
 import game.*;
 import org.junit.*;
@@ -267,7 +268,7 @@ public class GameTreeTest {
      * an 8-argument this() call — which silently binds to the PUBLIC
      * 8-argument overload and shifts every flag (caught live during T14:
      * aspiration was disabled and the TT dropped exactly that way). This
-     * test pins each public constructor's flags against observable behavior
+     * test pins the GameTreeConfig constructor's flags against observable behavior
      * (TT probes, aspiration retries, PVS re-searches) so a future
      * overload-shape change fails here instead of in a silent behavior flip.
      */
@@ -279,7 +280,8 @@ public class GameTreeTest {
         for (boolean tt : new boolean[]{true, false}){
             setT14Position("race");
             GameTree tree = new GameTree(Player.WHITE, Player.BLACK,
-                    T14_BUDGET, seed, tt);
+                    new GameTreeConfig(T14_BUDGET, seed, tt, true, true,
+                            true, true, true, true, true));
             tree.debugSearchScore(3, Integer.MIN_VALUE, Integer.MAX_VALUE);
             assertEquals("tt flag " + tt, tt, tree.getTTProbes() > 0);
         }
@@ -290,7 +292,8 @@ public class GameTreeTest {
         for (boolean asp : new boolean[]{true, false}){
             setT14Position("race");
             GameTree tree = new GameTree(Player.WHITE, Player.BLACK,
-                    T14_BUDGET, seed, true, asp);
+                    new GameTreeConfig(T14_BUDGET, seed, true, asp, true,
+                            true, true, true, true, true));
             tree.aspirationScoreAtDepth(4);
             assertEquals("aspiration flag " + asp, asp,
                     tree.getAspirationRetries() > 0);
@@ -301,7 +304,8 @@ public class GameTreeTest {
         for (boolean pvs : new boolean[]{true, false}){
             setT14Position("captureRace");
             GameTree tree = new GameTree(Player.WHITE, Player.BLACK,
-                    T14_BUDGET, seed, true, false, pvs);
+                    new GameTreeConfig(T14_BUDGET, seed, true, false, pvs,
+                            true, true, true, true, true));
             tree.debugSearchScore(3, Integer.MIN_VALUE, Integer.MAX_VALUE);
             assertEquals("pvs flag " + pvs, pvs,
                     tree.getPvsResearched() > 0);
@@ -383,8 +387,9 @@ public class GameTreeTest {
             TranspositionTable shared = new TranspositionTable();
 
             // Pass 1: fresh (empty) table, PVS on, full window.
-            GameTree pvsOn = new GameTree(max, min, T14_BUDGET, seed,
-                    true, false, true);
+            GameTree pvsOn = new GameTree(max, min,
+                    new GameTreeConfig(T14_BUDGET, seed, true, false, true,
+                            true, true, true, true, true));
             pvsOn.setTranspositionTable(shared);
             int s1 = pvsOn.debugSearchScore(depth, Integer.MIN_VALUE,
                     Integer.MAX_VALUE);
@@ -397,8 +402,9 @@ public class GameTreeTest {
                     + "exact", hash0, board.getZobristHash());
 
             // Pass 3: a PVS-off search probing the SAME dirty table.
-            GameTree pvsOff = new GameTree(max, min, T14_BUDGET, seed,
-                    true, false, false);
+            GameTree pvsOff = new GameTree(max, min,
+                    new GameTreeConfig(T14_BUDGET, seed, true, false, false,
+                            true, true, true, true, true));
             pvsOff.setTranspositionTable(shared);
             int s3 = pvsOff.debugSearchScore(depth, Integer.MIN_VALUE,
                     Integer.MAX_VALUE);
@@ -438,8 +444,9 @@ public class GameTreeTest {
         long h = board.getZobristHash();
         int turn = board.getTurnNumber();
         List<Move> moves = new ArrayList<>(board.getAllLegalMovesQuick());
-        GameTree pvs = new GameTree(Player.WHITE, Player.BLACK, T14_BUDGET,
-                42L, true, false, true);
+        GameTree pvs = new GameTree(Player.WHITE, Player.BLACK,
+                new GameTreeConfig(T14_BUDGET, 42L, true, false, true,
+                        true, true, true, true, true));
         pvs.debugSearchScore(3, Integer.MIN_VALUE, Integer.MAX_VALUE);
         assertTrue("sanity: a re-search must have happened", pvs
                 .getPvsResearched() > 0);
@@ -454,8 +461,9 @@ public class GameTreeTest {
         h = board.getZobristHash();
         turn = board.getTurnNumber();
         moves = new ArrayList<>(board.getAllLegalMovesQuick());
-        GameTree asp = new GameTree(Player.WHITE, Player.BLACK, T14_BUDGET,
-                42L, true, true, true);
+        GameTree asp = new GameTree(Player.WHITE, Player.BLACK,
+                new GameTreeConfig(T14_BUDGET, 42L, true, true, true,
+                        true, true, true, true, true));
         asp.aspirationScoreAtDepth(4);
         assertTrue("sanity: a retry must have happened", asp
                 .getAspirationRetries() > 0);
@@ -542,8 +550,9 @@ public class GameTreeTest {
      *  handoff per the parameter. */
     private GameTree t14Tree(String which, long seed, boolean handoff){
         Player max = board.getCurrentPlayer();
-        return new GameTree(max, max.other(), T14_BUDGET, seed,
-                true, false, false, handoff);
+        return new GameTree(max, max.other(),
+                new GameTreeConfig(T14_BUDGET, seed, true, false, false,
+                        handoff, true, true, true, true));
     }
 
     /**

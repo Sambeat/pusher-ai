@@ -153,10 +153,12 @@ public class Bench {
     public static GameTree treeFor(Level level, Player maxPlayer,
                                    Player minPlayer, long timeBudgetMillis,
                                    Long seed) {
-        return new GameTree(maxPlayer, minPlayer, timeBudgetMillis, seed,
-                level.transposition, level.aspiration, level.pvs,
-                level.transposition, level.quiescence,
-                level.threatTerms, level.repetition, level.ordering);
+        return new GameTree(maxPlayer, minPlayer,
+                new GameTreeConfig(timeBudgetMillis, seed,
+                        level.transposition, level.aspiration, level.pvs,
+                        level.transposition, level.quiescence,
+                        level.threatTerms, level.repetition,
+                        level.ordering));
     }
 
     public static void main(String[] args) {

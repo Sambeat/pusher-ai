@@ -90,9 +90,6 @@ public class GameTree {
     private Long randomSeed;
     private long searchCount;
 
-    // Legacy per-level logging (silenced by the bench constructor).
-    private boolean verbose = true;
-
     // Deepest level fully completed by the last getBestMoveQuick() call
     // (0 when even level 1 did not finish).
     private int lastCompletedLevel;
@@ -192,23 +189,21 @@ public class GameTree {
     // score-return gate in alphaBeta is independent of it.
     private final boolean orderingEnabled;
 
+    /**
+     * The production configuration: the default per-move budget, an
+     * unseeded (non-reproducible) shuffle, every feature enabled — the
+     * flags the removed 5- through 12-argument telescoping constructors
+     * (C6) all defaulted to.
+     */
     public GameTree(Player maxPlayer, Player minPlayer){
-        // NOTE: delegates to the 13-argument private constructor (verbose,
-        // tt, aspiration, pvs, handoff, quiescence, threat terms,
-        // repetition, ordering). The delegation arity must match the
-        // PRIVATE constructor — an 8-argument this() call would silently
-        // bind to the public 8-argument overload and shift every flag
-        // (caught live during T14; pinned by
-        // constructorFlagsAreWiredToTheirDocuments).
-        this(maxPlayer, minPlayer, MAX_TIME_MILLIS, null, true, true, true,
-                true, true, true, true, true, true);
+        this(maxPlayer, minPlayer, GameTreeConfig.defaults());
     }
 
     /**
      * Construct a tree with an explicit per-move time budget and an optional
      * seed that makes the move-order shuffling reproducible (T7 bench).
-     * A null seed keeps the legacy non-deterministic behavior. This
-     * constructor silences the per-level logging of the default one.
+     * A null seed keeps the legacy non-deterministic behavior. Every
+     * feature flag is enabled (the production configuration).
      * @param maxPlayer The player the search maximizes for.
      * @param minPlayer The player the search minimizes for.
      * @param timeBudgetMillis The per-move search budget in milliseconds.
@@ -216,158 +211,35 @@ public class GameTree {
      *             non-deterministic play.
      */
     public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis, Long seed){
-        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false, true, true,
-                true, true, true, true, true, true);
+        this(maxPlayer, minPlayer, new GameTreeConfig(timeBudgetMillis, seed,
+                true, true, true, true, true, true, true, true));
     }
 
     /**
-     * T6: like the 4-argument constructor, with the transposition table
-     * explicitly enabled or disabled (the determinism check needs the
-     * same search with the TT off).
+     * C6: construct a tree with an explicit search-feature configuration
+     * (replaces the removed 5- through 12-argument telescoping
+     * constructors; the 2- and 4-argument forms above keep their
+     * signatures and exact defaults). Flag wiring stays pinned by
+     * constructorFlagsAreWiredToTheirDocuments.
+     * @param maxPlayer The player the search maximizes for.
+     * @param minPlayer The player the search minimizes for.
+     * @param config Budget, seed and every search-feature flag.
      */
-    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
-                    Long seed, boolean transpositionEnabled){
-        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, true, true, true, true, true, true,
-                true);
-    }
-
-    /**
-     * T13 Part A: like the 5-argument constructor, with the aspiration
-     * windows explicitly enabled or disabled (the determinism check needs
-     * the same search with aspiration off, the pre-T13 full-window
-     * behavior).
-     */
-    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
-                    Long seed, boolean transpositionEnabled,
-                    boolean aspirationEnabled){
-        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, aspirationEnabled, true, true,
-                true, true, true, true);
-    }
-
-    /**
-     * T13 Part B: like the 6-argument constructor, with PVS (the
-     * principal-variation null-window search + fail-high re-search in the
-     * child loop) explicitly enabled or disabled (the determinism check
-     * needs the same search with PVS off, the pre-Part-B full-window
-     * behavior).
-     */
-    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
-                    Long seed, boolean transpositionEnabled,
-                    boolean aspirationEnabled, boolean pvsEnabled){
-        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, aspirationEnabled, pvsEnabled, true,
-                true, true, true, true);
-    }
-
-    /**
-     * T14 item 1: like the 7-argument constructor, with the internal-node TT
-     * best-move handoff explicitly enabled or disabled (the score-invariance
-     * test searches the same positions both ways; see the ttMoveHandoff
-     * field for what the flag controls). Default in all other constructors:
-     * enabled (the fixed behavior).
-     */
-    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
-                    Long seed, boolean transpositionEnabled,
-                    boolean aspirationEnabled, boolean pvsEnabled,
-                    boolean ttMoveHandoff){
-        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, aspirationEnabled, pvsEnabled,
-                ttMoveHandoff, true, true, true, true);
-    }
-
-    /**
-     * T15: like the 8-argument constructor, with T3's quiescence extension
-     * explicitly enabled or disabled (the t2/t4/t6 engine levels of the
-     * A/B harness search pre-T3: depth-0 nodes return the stand-pat static
-     * score directly). Default in all other constructors: enabled.
-     */
-    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
-                    Long seed, boolean transpositionEnabled,
-                    boolean aspirationEnabled, boolean pvsEnabled,
-                    boolean ttMoveHandoff, boolean quiescenceEnabled){
-        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, aspirationEnabled, pvsEnabled,
-                ttMoveHandoff, quiescenceEnabled, true, true, true);
-    }
-
-    /**
-     * T15: like the 9-argument constructor, with T4's threat &amp; safety
-     * evaluation terms explicitly enabled or disabled (the t2/t3 engine
-     * levels evaluate pre-T4). The flag is plumbed to the stand-pat
-     * evaluation in both the quiescence and the pre-T3 direct-return path;
-     * both strategies honor it. Default in all other constructors: enabled.
-     */
-    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
-                    Long seed, boolean transpositionEnabled,
-                    boolean aspirationEnabled, boolean pvsEnabled,
-                    boolean ttMoveHandoff, boolean quiescenceEnabled,
-                    boolean threatTermsEnabled){
-        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, aspirationEnabled, pvsEnabled,
-                ttMoveHandoff, quiescenceEnabled, threatTermsEnabled, true,
-                true);
-    }
-
-    /**
-     * T15: like the 10-argument constructor, with T10's anti-repetition
-     * (history append + root penalty) explicitly enabled or disabled (the
-     * t2/t3/t4/t6 engine levels predate it). Default in all other
-     * constructors: enabled.
-     */
-    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
-                    Long seed, boolean transpositionEnabled,
-                    boolean aspirationEnabled, boolean pvsEnabled,
-                    boolean ttMoveHandoff, boolean quiescenceEnabled,
-                    boolean threatTermsEnabled, boolean repetitionEnabled){
-        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, aspirationEnabled, pvsEnabled,
-                ttMoveHandoff, quiescenceEnabled, threatTermsEnabled,
-                repetitionEnabled, true);
-    }
-
-    /**
-     * T16: like the 11-argument constructor, with T16's goal-proximity
-     * ordering of quiet moves explicitly enabled or disabled (off is
-     * exactly the pre-T16 behavior: every quiet move in one plain
-     * shuffle). Default in all other constructors: enabled (the post-T16
-     * behavior).
-     */
-    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
-                    Long seed, boolean transpositionEnabled,
-                    boolean aspirationEnabled, boolean pvsEnabled,
-                    boolean ttMoveHandoff, boolean quiescenceEnabled,
-                    boolean threatTermsEnabled, boolean repetitionEnabled,
-                    boolean orderingEnabled){
-        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, aspirationEnabled, pvsEnabled,
-                ttMoveHandoff, quiescenceEnabled, threatTermsEnabled,
-                repetitionEnabled, orderingEnabled);
-    }
-
-    private GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
-                     Long randomSeed, boolean verbose, boolean transpositionEnabled,
-                     boolean aspirationEnabled, boolean pvsEnabled,
-                     boolean ttMoveHandoff, boolean quiescenceEnabled,
-                     boolean threatTermsEnabled, boolean repetitionEnabled,
-                     boolean orderingEnabled){
+    public GameTree(Player maxPlayer, Player minPlayer, GameTreeConfig config){
         this.maxPlayer = maxPlayer;
         this.minPlayer = minPlayer;
-        this.timeBudgetMillis = timeBudgetMillis;
-        this.randomSeed = randomSeed;
-        this.verbose = verbose;
-        this.tt = transpositionEnabled ? new TranspositionTable() : null;
-        this.aspirationEnabled = aspirationEnabled;
-        this.pvsEnabled = pvsEnabled;
-        this.ttMoveHandoff = ttMoveHandoff;
-        this.quiescenceEnabled = quiescenceEnabled;
-        this.threatTermsEnabled = threatTermsEnabled;
-        this.repetitionEnabled = repetitionEnabled;
-        this.orderingEnabled = orderingEnabled;
+        this.timeBudgetMillis = config.timeBudgetMillis();
+        this.randomSeed = config.seed();
+        this.tt = config.transpositionEnabled() ? new TranspositionTable() : null;
+        this.aspirationEnabled = config.aspirationEnabled();
+        this.pvsEnabled = config.pvsEnabled();
+        this.ttMoveHandoff = config.ttMoveHandoff();
+        this.quiescenceEnabled = config.quiescenceEnabled();
+        this.threatTermsEnabled = config.threatTermsEnabled();
+        this.repetitionEnabled = config.repetitionEnabled();
+        this.orderingEnabled = config.orderingEnabled();
 
         strategy = new PlayerStrategy(maxPlayer);
-
     }
 
     /**
@@ -586,9 +458,6 @@ public class GameTree {
 
             if (moveInfo.score() > 9000 || moveInfo.score() < -9000)
                 break;
-
-            if (verbose)
-                System.out.println(moveInfo.bestMove() + ":" + moveInfo.score());
 
             prevScore = moveInfo.score();
             level++;

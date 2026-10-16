@@ -4,6 +4,7 @@ import client.Bench;
 import client.Bench.Level;
 import client.GameAnalyzer;
 import client.GameTree;
+import client.GameTreeConfig;
 import client.PlayerStrategy;
 import game.GameBoard;
 import game.Move;
@@ -88,13 +89,15 @@ public class EngineLevelTest {
                                 Integer.MAX_VALUE);
                 // t6 + PVS (TT on, PVS on, no aspiration: a single full-
                 // window search, so the window features stay out).
-                int t6pvs = new GameTree(max, min, BUDGET, SEED, true,
-                        false, true, true, true, true, true)
+                int t6pvs = new GameTree(max, min,
+                        new GameTreeConfig(BUDGET, SEED, true, false, true,
+                                true, true, true, true, true))
                         .debugSearchScore(depth, Integer.MIN_VALUE,
                                 Integer.MAX_VALUE);
                 // t4 + PVS (PVS without a TT must be exact too).
-                int t4pvs = new GameTree(max, min, BUDGET, SEED, false,
-                        false, true, true, true, true, true)
+                int t4pvs = new GameTree(max, min,
+                        new GameTreeConfig(BUDGET, SEED, false, false, true,
+                                true, true, true, true, true))
                         .debugSearchScore(depth, Integer.MIN_VALUE,
                                 Integer.MAX_VALUE);
 
@@ -233,8 +236,9 @@ public class EngineLevelTest {
         setT15Position("captureRace");
         Player max = board.getCurrentPlayer();
 
-        GameTree qOff = new GameTree(max, max.other(), BUDGET, SEED, true,
-                false, false, true, false, true, true);
+        GameTree qOff = new GameTree(max, max.other(),
+                new GameTreeConfig(BUDGET, SEED, true, false, false, true,
+                        false, true, true, true));
         int standPat = GameAnalyzer.analyzeFor(board, max, true);
         assertEquals("q off: the depth-0 node is the stand-pat itself",
                 standPat, qOff.debugSearchScore(0, Integer.MIN_VALUE,
@@ -243,8 +247,9 @@ public class EngineLevelTest {
                 qOff.getQNodeCount());
 
         setT15Position("captureRace");
-        GameTree qOn = new GameTree(max, max.other(), BUDGET, SEED, true,
-                false, false, true, true, true, true);
+        GameTree qOn = new GameTree(max, max.other(),
+                new GameTreeConfig(BUDGET, SEED, true, false, false, true,
+                        true, true, true, true));
         qOn.debugSearchScore(0, Integer.MIN_VALUE, Integer.MAX_VALUE);
         assertTrue("q on: the depth-0 node is a q-node",
                 qOn.getQNodeCount() > 0);
@@ -292,8 +297,9 @@ public class EngineLevelTest {
 
         // Flag OFF: the same poison history is ignored — the natural best
         // move is chosen — and nothing was appended.
-        GameTree off = new GameTree(Player.WHITE, Player.BLACK, BUDGET,
-                SEED, true, false, false, true, true, true, false);
+        GameTree off = new GameTree(Player.WHITE, Player.BLACK,
+                new GameTreeConfig(BUDGET, SEED, true, false, false, true,
+                        true, true, false, true));
         off.setRepetitionHistory(poison);
         assertEquals("flag off: the poisoned history must be ignored",
                 repeating, off.getBestMoveQuick(1));

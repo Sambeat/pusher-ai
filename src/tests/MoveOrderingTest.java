@@ -1,6 +1,7 @@
 package tests;
 
 import client.GameTree;
+import client.GameTreeConfig;
 import game.*;
 import org.junit.*;
 import static org.junit.Assert.*;
@@ -97,8 +98,9 @@ public class MoveOrderingTest {
             for (boolean ordering : new boolean[]{false, true}){
                 setT16Position("defaultStart");
                 Player max = board.getCurrentPlayer();
-                GameTree tree = new GameTree(max, max.other(), BUDGET, SEED,
-                        tt, false, false, true, true, true, true, ordering);
+                GameTree tree = new GameTree(max, max.other(),
+                        new GameTreeConfig(BUDGET, SEED, tt, false, false,
+                                true, true, true, true, ordering));
                 scores[i] = tree.debugSearchScore(depth,
                         Integer.MIN_VALUE, Integer.MAX_VALUE);
                 nodes[i] = tree.getNodeCount();
@@ -130,8 +132,8 @@ public class MoveOrderingTest {
     @Test
     public void equidistantQuietMovesStillShuffleWithOrderingOn(){
         final GameTree tree = new GameTree(Player.WHITE, Player.BLACK,
-                BUDGET, null, true, false, false, true, true, true, true,
-                true);
+                new GameTreeConfig(BUDGET, null, true, false, false,
+                        true, true, true, true, true));
         int timesPiece1Moved = 0;
         int timesPiece2Moved = 0;
 
@@ -237,7 +239,8 @@ public class MoveOrderingTest {
      *  repetition on — ordering per the parameter. */
     private GameTree t16Tree(String which, long seed, boolean ordering){
         Player max = board.getCurrentPlayer();
-        return new GameTree(max, max.other(), BUDGET, seed,
-                true, false, false, true, true, true, true, ordering);
+        return new GameTree(max, max.other(),
+                new GameTreeConfig(BUDGET, seed, true, false, false,
+                        true, true, true, true, ordering));
     }
 }
