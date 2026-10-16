@@ -618,6 +618,18 @@ public class GameTree {
         }
     }
 
+    /** Root entry point of the search (T6: see the isRoot handling in the
+     *  6-argument overload for the root's transposition-table semantics). */
+    private ScoreAndMove alphaBeta(int depth, Player player, int alpha, int beta) throws SearchTimeoutException {
+        return alphaBeta(depth, player, alpha, beta, 0, true);
+    }
+
+    /** Internal-node entry point (recursions, including quiescence's). */
+    private ScoreAndMove alphaBeta(int depth, Player player, int alpha, int beta,
+                               int qDepth) throws SearchTimeoutException {
+        return alphaBeta(depth, player, alpha, beta, qDepth, false);
+    }
+
     /**
      * Minmax algorithm with alpha-beta pruning which evaluates every possible
      * move up to a certain number of turns.
@@ -640,18 +652,6 @@ public class GameTree {
      * @param beta The minimum score found yet at that depth level.
      * @return A ScoreAndMove with the score and the best Move.
      */
-    /** Root entry point of the search (T6: see the isRoot handling in the
-     *  6-argument overload for the root's transposition-table semantics). */
-    private ScoreAndMove alphaBeta(int depth, Player player, int alpha, int beta) throws SearchTimeoutException {
-        return alphaBeta(depth, player, alpha, beta, 0, true);
-    }
-
-    /** Internal-node entry point (recursions, including quiescence's). */
-    private ScoreAndMove alphaBeta(int depth, Player player, int alpha, int beta,
-                               int qDepth) throws SearchTimeoutException {
-        return alphaBeta(depth, player, alpha, beta, qDepth, false);
-    }
-
     private ScoreAndMove alphaBeta(int depth, Player player, int alpha, int beta,
                                int qDepth, boolean isRoot) throws SearchTimeoutException {
         nodeCount++;

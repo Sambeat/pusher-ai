@@ -329,13 +329,7 @@ public class GameBoard {
 
     @Override
     public String toString(){
-        String stringBuilder = "";
-
-        stringBuilder = stringBuilder.concat(rowsToString());
-
-        stringBuilder = stringBuilder.concat(bottomBoardToString());
-
-        return stringBuilder;
+        return rowsToString() + bottomBoardToString();
     }
 
     private String rowsToString(){

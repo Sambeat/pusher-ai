@@ -32,7 +32,7 @@ public class BoardSquare implements Cloneable {
     public BoardSquare clone() throws CloneNotSupportedException {
         BoardSquare clone = (BoardSquare)super.clone();
 
-        clone.piece = (Piece)piece.clone();
+        clone.piece = piece.clone();
         clone.row = row;
         clone.column = column;
 

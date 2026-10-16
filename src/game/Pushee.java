@@ -1,8 +1,5 @@
 package game;
 
-import java.lang.reflect.Array;
-import java.util.ArrayList;
-
 /**
  * A Pushee is a Piece that can only move if a Pusher is behind it.
  * @author Samuel Charade
@@ -10,19 +7,12 @@ import java.util.ArrayList;
  */
 public final class Pushee extends Piece{
 
-    public static final int ID = 0;
     private static final int LOWERCASE_DELTA = 32;
     public static final int VALUE = 3;
 
     public Pushee(Player owner){
         super(owner);
     }
-
-    @Override
-    public int getID() {
-        return ID;
-    }
-
 
     @Override
     void computeLegalMoves() {

@@ -1,9 +1,6 @@
 package game;
 
-import client.GameStep;
-
 import java.util.ArrayList;
-import java.util.Arrays;
 
 /**
  * Piece is an abstract representation of the pieces that are on the GameBoard.
@@ -29,7 +26,7 @@ public sealed abstract class Piece implements Cloneable permits Pusher, Pushee {
     }
 
     @Override
-    public Object clone(){
+    public Piece clone(){
         try {
             Piece clone = (Piece) super.clone();
 
@@ -40,8 +37,6 @@ public sealed abstract class Piece implements Cloneable permits Pusher, Pushee {
             return null;
         }
     }
-
-    public abstract int getID();
 
     public Player getOwner(){
         return owner;
@@ -98,19 +93,6 @@ public sealed abstract class Piece implements Cloneable permits Pusher, Pushee {
     }
 
     public abstract int getScoreValue();
-
-    public boolean hasAdjacentPusher(){
-        GameBoard board = GameBoard.getInstance();
-
-        //Null-safe at the board edges: getSquare() returns null for
-        //off-board coordinates (files A and H).
-        BoardSquare left = board.getSquare(getRow(), getColumn() - 1);
-        if (left != null && left.hasPusher()) {
-            return true;
-        }
-        BoardSquare right = board.getSquare(getRow(), getColumn() + 1);
-        return right != null && right.hasPusher();
-    }
 
     /**
      * Update the list of legal moves of this piece based on its current

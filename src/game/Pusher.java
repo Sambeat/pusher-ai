@@ -1,7 +1,5 @@
 package game;
 
-import java.util.ArrayList;
-
 /**
  * A Pusher is a Piece that can move by itself or move a Pushee by "pushing" it.
  * @author Samuel Charade
@@ -9,16 +7,10 @@ import java.util.ArrayList;
  */
 public final class Pusher extends Piece {
 
-    public static final int ID = 1;
     public static final int VALUE = 7;
 
     public Pusher(Player owner){
         super(owner);
-    }
-
-    @Override
-    public int getID() {
-        return ID;
     }
 
     public String toString(){

@@ -35,12 +35,9 @@ public class GameStep{
             Piece pieceToClone = boardSquares[i].getPiece();
 
             if (pieceToClone != null) {
-                try {
-                    boardPieces[i] = (Piece) pieceToClone.clone();
-                } catch (Exception e){
-                    e.printStackTrace();
-                }
-
+                // Piece.clone() swallows CloneNotSupportedException itself
+                // (returns null); nothing else can escape, so no try/catch.
+                boardPieces[i] = pieceToClone.clone();
             }
 
         }
