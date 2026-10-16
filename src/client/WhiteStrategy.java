@@ -17,6 +17,11 @@ public class WhiteStrategy implements Strategy {
 
     @Override
     public int analyze(){
-        return GameAnalyzer.analyzeFor(board, Player.WHITE);
+        return analyze(true);
+    }
+
+    @Override
+    public int analyze(boolean threatTermsEnabled){
+        return GameAnalyzer.analyzeFor(board, Player.WHITE, threatTermsEnabled);
     }
 }
