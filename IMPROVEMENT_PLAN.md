@@ -55,7 +55,7 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 (if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
 ./build.sh test
-# Expected: OK (121 tests). GameTreeTest takes ~5 s (real time-limited searches);
+# Expected: OK (131 tests). GameTreeTest takes ~5 s (real time-limited searches);
 # PusherApplicationTest drives full-budget searches (a few seconds).
 # (Count history: 42 at T1, +20 from T5's RulesContractTest, +2 from T7's
 # BenchTest, +3 from T3's QuiescenceTest, +14 from T4's ThreatEvalTest,
@@ -77,7 +77,11 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 # +7 from T14 (6 GameTreeTest: handoff score-invariance, handoff node
 # reduction, constructor wiring, max-static-score bound, PVS×TT dirty-table
 # fuzz, board-state discipline; 1 TranspositionTableTest: replacement
-# contract).)
+# contract),
+# +10 from T15 (9 EngineLevelTest: speed-only value identity, stack
+# collapse, pre-T4 eval floor, quiescence wiring, repetition wiring,
+# level parsing/monotone stack, t13==current, CLI rejections, A/B
+# determinism; 1 EvalSymmetryTest: mirror with threat terms off).)
 ```
 JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
 sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
@@ -1645,6 +1649,85 @@ protocol changes.
 
 **Risk.** Low — additive; defaults preserve current behavior exactly. **Estimate.**
 1 session.
+
+#### T15 Findings
+
+Acceptance: **1 — MET (with the sample-size note below: the 7/13 engine
+split decomposes into the 13/7 White-first color split plus ≤1.4σ label
+noise, and the depth profile matches a fresh VisualGame reference); 2 — MET
+(131 tests green ×2); 3 — recorded below.**
+
+**Setup for the measurements.** Full board (32-piece start), 4950 ms budget,
+seed 42, 20 games per matchup, colors alternating per game (engine A is
+WHITE in games 1,3,…,19 and BLACK in games 2,4,…,20; White always moves
+first). One JVM per matchup, the three runs in parallel on 16 cores. All
+three runs: 0 truncated games.
+
+**Baseline 1 — `--ab t13 t6` (isolates T13: aspiration + PVS).**
+`{"games":20,"aWins":10,"bWins":10,"aWinsAsWhite":5,"aWinsAsBlack":5,
+"truncated":0,"avgPlies":57.90,"avgMaxDepthA":10.25,"avgMaxDepthB":10.20}`
+50/50. t13 won 5 as WHITE and 5 as BLACK — color-neutral, so no tempo
+artifact. avgMaxDepth 10.25 vs 10.20: at a fixed budget both stacks reach
+the same full-board depth (the T14 handoff already made t6-class searches
+fast; aspiration + PVS buy speed, not depth, at this budget). Plies median
+58, max 75. Conclusion within the ±10 pp band: T13's measured contribution
+at n=20 is speed (−41 % ms/move, T14), not strength.
+
+**Baseline 2 — `--ab t13 t4` (isolates T6 + T10 + T13: TT, repetition,
+aspiration, PVS).**
+`{"games":20,"aWins":14,"bWins":6,"aWinsAsWhite":7,"aWinsAsBlack":7,
+"truncated":0,"avgPlies":53.90,"avgMaxDepthA":10.00,"avgMaxDepthB":8.95}`
+70/30, and t13 won 7 as WHITE and 7 as BLACK (70 % in both colors — overall
+WHITE/BLACK = 10/10, the tempo effect cancels): a clean strength signal,
+not a first-move artifact. avgMaxDepthA 10.00 vs avgMaxDepthB 8.95: t4's
+slower search exhausts its budget a level shallower, consistent with T14's
+speed findings. 20 pp ≈ 1.8σ at n=20 (binomial σ ≈ 11 pp): directionally
+the TT + repetition + window stack is the stronger engine; per the
+sample-size caveat (requirement 5) 20 games is indicative, not conclusive —
+the first real strength measurement of the features that landed since T4,
+and it warrants a larger-n re-run before being treated as settled.
+
+**Mirror acceptance — `--ab t13 t13`.**
+`{"games":20,"aWins":7,"bWins":13,"aWinsAsWhite":5,"aWinsAsBlack":2,
+"truncated":0,"avgPlies":55.25,"avgMaxDepthA":10.45,"avgMaxDepthB":10.20}`
+The engine split is 7/13, but the color split is WHITE 13 / BLACK 7: the
+first-move advantage is real on the full board too (+15 pp, 1.3σ,
+suggestive — consistent with the 2+3 board's tempo effect, where the
+starter force-wins). The engine split is exactly that color split projected
+onto the A/B labels: A won 5 as WHITE and 2 as BLACK, B won 8 as WHITE and
+5 as BLACK — each ≈1.4σ from the color baseline, noise. Identical engines
+show no engine advantage, which is what the mirror check exists to verify.
+Depth profile: per-game max depth min 9 / median 10 / max 12 (n=40
+engine-games) vs a fresh `VisualGame --budget 4950` (seed 42): per-move
+median 9 / max 12 (n=72) — matching the live reference. The plan's
+parenthetical (median 8, max ~9) predates the T14 handoff fix, which shifted
+the full-board profile to mostly 9s (T14 findings, item 1); acceptance is
+against VisualGame as the running definition, and the parenthetical should
+be read as superseded by that finding.
+
+**Sample-size caveat (acceptance 3).** ≤20 games per matchup is indicative
+(≈±10 pp noise at 20 games: binomial σ ≈ 11 pp at n=20), and the shared
+seed correlates the shuffle streams across the 20 games, so the effective
+sample is smaller still. A delta under 10 pp (t13 vs t6: 0 pp) is not a
+conclusion.
+
+**Flag-correctness tests (requirement 4).** New `tests.EngineLevelTest`
+(9 tests): speed-only value identity (TT/PVS never change the fixed-depth
+root value; the t10 == t6 == t4 chain under iterative deepening), the pre-T4
+eval floor by direct formula on two positions with non-zero removed terms
+(including t2's depth-0 stand-pat), quiescence/repetition wiring (q-node
+counter; history counter; the poisoned-history pin reusing
+RepetitionTest's geometry — flag off ignores the poison, flag on flips the
+choice), level parsing + the monotone-stack property, t13 == the current
+engine (treeFor(T13) ≡ the pre-T15 constructor), CLI rejections (unknown
+level, mode mismatches), and same-seed replay determinism (two `--ab t13
+t13` runs produce identical per-game lines modulo the wall-clock elapsedMs
+field; the budget is the T7-validated 2000 ms, where the small-board search
+ends by content — the forced-win level completes in tens of ms — so the
+completed level is not wall-clock-sensitive). `tests.EvalSymmetryTest` gains
+the T8 mirror invariant with the threat terms off (the removed term verified
+non-zero: READY_TO_WIN on the ready shapes). Full suite 131 green ×2; the
+121 pre-T15 tests pass unmodified — defaults on ⇒ zero behavior change.
 
 ---
 

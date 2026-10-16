@@ -1,6 +1,7 @@
 package tests;
 
 import client.BlackStrategy;
+import client.GameAnalyzer;
 import client.WhiteStrategy;
 import game.GameBoard;
 import game.Piece;
@@ -83,16 +84,64 @@ public class EvalSymmetryTest {
         mirrorHolds(asymmetricCounts(), "asymmetric piece counts (2 vs 3)");
     }
 
+    /**
+     * T15: T8's mirror invariant must survive the threat-terms flag — the
+     * same positions with the T4 terms OFF (what the t2/t3 engine levels
+     * evaluate) are still exact mirrors. The shapes are the same: several
+     * have non-zero threat terms, so the flag provably removes a term from
+     * the mirrored comparison, not just a no-op.
+     */
+    @Test
+    public void strategiesAreExactMirrorsWithThreatTermsOff(){
+        int[][][] positions = {benchStart(), full32PieceStart(), edgeFiles(),
+                readyToWinShapes(), capturesAvailable(), asymmetricCounts()};
+        String[] labels = {
+                "bench start (2 pushers + 3 pushees per side)",
+                "full 32-piece start",
+                "edge-file pieces (Pushees on A, Pushers on H)",
+                "ready-to-win shapes on both sides",
+                "mutual-capture shapes",
+                "asymmetric piece counts (2 vs 3)",
+        };
+        // Of the six positions, only the ready-to-win shapes carry T4
+        // terms (White: READY_TO_WIN = +400); the rest score 0 there, so
+        // the off/on comparison is a genuine term removal in exactly that
+        // case (the other non-zero shapes are pinned by
+        // EngineLevelTest.withThreatTermsOffTheEvalIsExactlyThePreT4Formula).
+        boolean[] termsExpectedNonZero = {false, false, false, true, false,
+                false};
+
+        for (int i = 0; i < positions.length; i++) {
+            int[][] pieces = positions[i];
+            place(pieces, false);
+            if (termsExpectedNonZero[i]) {
+                int removed = GameAnalyzer.threatTerms(board, Player.WHITE);
+                assertTrue(labels[i] + ": the threat terms must be non-"
+                        + "zero here (removed=" + removed + ")",
+                        removed != 0);
+            }
+            mirrorHolds(pieces, labels[i], false);
+        }
+    }
+
     /** Set up p (White to move), evaluate as White; rebuild mirror(p) (Black
      *  to move), evaluate as Black; the two scores must be equal. */
     private void mirrorHolds(int[][] pieces, String label){
+        mirrorHolds(pieces, label, true);
+    }
+
+    /** mirrorHolds with the T4 threat terms on (the T8 check) or off
+     *  (T15's t2/t3 evaluation). */
+    private void mirrorHolds(int[][] pieces, String label,
+                             boolean threatTerms){
         place(pieces, false);
-        int whiteScore = white.analyze();
+        int whiteScore = white.analyze(threatTerms);
 
         place(pieces, true);
-        int blackScore = black.analyze();
+        int blackScore = black.analyze(threatTerms);
 
-        assertEquals(label + ": eval_white(p) " + whiteScore
+        assertEquals(label + " (threat terms " + (threatTerms ? "on" : "off")
+                        + "): eval_white(p) " + whiteScore
                         + " must equal eval_black(mirror(p)) " + blackScore,
                 whiteScore, blackScore);
     }

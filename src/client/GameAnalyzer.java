@@ -78,6 +78,19 @@ public class GameAnalyzer {
      * the side to move.
      */
     public static int analyzeFor(GameBoard board, Player player){
+        return analyzeFor(board, player, true);
+    }
+
+    /**
+     * T15: analyzeFor with the T4 threat &amp; safety terms included or not.
+     * With them off the score is exactly the pre-T4 evaluation —
+     * (value + advancement) for each own piece, -(value + advancement +
+     * DEFENSIVE_PREMIUM) for each enemy piece, own mobility / 2 — which is
+     * what the t2/t3 engine levels (T15) evaluate. The 2-argument overload
+     * (the production path) always includes the terms.
+     */
+    public static int analyzeFor(GameBoard board, Player player,
+                                 boolean threatTermsEnabled){
         Player enemy = player.other();
         int score = 0;
 
@@ -110,7 +123,8 @@ public class GameAnalyzer {
         }
         score += ownMobility / 2;
 
-        score += threatTerms(board, player);
+        if (threatTermsEnabled)
+            score += threatTerms(board, player);
 
         return score;
     }

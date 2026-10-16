@@ -166,13 +166,28 @@ public class GameTree {
     // shuffle-random, pinned by testRandomnessForMoreThanOneMove).
     private final boolean ttMoveHandoff;
 
+    // T15: A/B feature off-flags (the engine-level stack, all default ON so
+    // the production constructors are bit-identical to pre-T15). When
+    // quiescenceEnabled is false, depth-0 nodes return the stand-pat static
+    // score directly (the pre-T3 behavior) instead of extending through
+    // captures. When threatTermsEnabled is false, the stand-pat evaluation
+    // skips T4's threat & safety terms (the pre-T4 evaluation — what the
+    // t2/t3 engine levels evaluate). When repetitionEnabled is false, no
+    // arrangement is appended to the anti-repetition history and no root
+    // penalty is applied (the pre-T10 behavior).
+    private final boolean quiescenceEnabled;
+    private final boolean threatTermsEnabled;
+    private final boolean repetitionEnabled;
+
     public GameTree(Player maxPlayer, Player minPlayer){
-        // NOTE: delegates to the 9-argument private constructor (verbose,
-        // tt, aspiration, pvs, handoff). An 8-argument this() call would
-        // silently bind to the public 8-argument overload below and shift
-        // every flag — do not "simplify" this.
+        // NOTE: delegates to the 12-argument private constructor (verbose,
+        // tt, aspiration, pvs, handoff, quiescence, threat terms,
+        // repetition). The delegation arity must match the PRIVATE
+        // constructor — an 8-argument this() call would silently bind to
+        // the public 8-argument overload and shift every flag (caught live
+        // during T14; pinned by constructorFlagsAreWiredToTheirDocuments).
         this(maxPlayer, minPlayer, MAX_TIME_MILLIS, null, true, true, true,
-                true, true);
+                true, true, true, true, true);
     }
 
     /**
@@ -188,7 +203,7 @@ public class GameTree {
      */
     public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis, Long seed){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false, true, true,
-                true, true);
+                true, true, true, true, true);
     }
 
     /**
@@ -199,7 +214,7 @@ public class GameTree {
     public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
                     Long seed, boolean transpositionEnabled){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, true, true, true);
+                transpositionEnabled, true, true, true, true, true, true);
     }
 
     /**
@@ -212,7 +227,8 @@ public class GameTree {
                     Long seed, boolean transpositionEnabled,
                     boolean aspirationEnabled){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, aspirationEnabled, true, true);
+                transpositionEnabled, aspirationEnabled, true, true,
+                true, true, true);
     }
 
     /**
@@ -226,7 +242,8 @@ public class GameTree {
                     Long seed, boolean transpositionEnabled,
                     boolean aspirationEnabled, boolean pvsEnabled){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, aspirationEnabled, pvsEnabled, true);
+                transpositionEnabled, aspirationEnabled, pvsEnabled, true,
+                true, true, true);
     }
 
     /**
@@ -242,13 +259,63 @@ public class GameTree {
                     boolean ttMoveHandoff){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
                 transpositionEnabled, aspirationEnabled, pvsEnabled,
-                ttMoveHandoff);
+                ttMoveHandoff, true, true, true);
+    }
+
+    /**
+     * T15: like the 8-argument constructor, with T3's quiescence extension
+     * explicitly enabled or disabled (the t2/t4/t6 engine levels of the
+     * A/B harness search pre-T3: depth-0 nodes return the stand-pat static
+     * score directly). Default in all other constructors: enabled.
+     */
+    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
+                    Long seed, boolean transpositionEnabled,
+                    boolean aspirationEnabled, boolean pvsEnabled,
+                    boolean ttMoveHandoff, boolean quiescenceEnabled){
+        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
+                transpositionEnabled, aspirationEnabled, pvsEnabled,
+                ttMoveHandoff, quiescenceEnabled, true, true);
+    }
+
+    /**
+     * T15: like the 9-argument constructor, with T4's threat &amp; safety
+     * evaluation terms explicitly enabled or disabled (the t2/t3 engine
+     * levels evaluate pre-T4). The flag is plumbed to the stand-pat
+     * evaluation in both the quiescence and the pre-T3 direct-return path;
+     * both strategies honor it. Default in all other constructors: enabled.
+     */
+    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
+                    Long seed, boolean transpositionEnabled,
+                    boolean aspirationEnabled, boolean pvsEnabled,
+                    boolean ttMoveHandoff, boolean quiescenceEnabled,
+                    boolean threatTermsEnabled){
+        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
+                transpositionEnabled, aspirationEnabled, pvsEnabled,
+                ttMoveHandoff, quiescenceEnabled, threatTermsEnabled, true);
+    }
+
+    /**
+     * T15: like the 10-argument constructor, with T10's anti-repetition
+     * (history append + root penalty) explicitly enabled or disabled (the
+     * t2/t3/t4/t6 engine levels predate it). Default in all other
+     * constructors: enabled.
+     */
+    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
+                    Long seed, boolean transpositionEnabled,
+                    boolean aspirationEnabled, boolean pvsEnabled,
+                    boolean ttMoveHandoff, boolean quiescenceEnabled,
+                    boolean threatTermsEnabled, boolean repetitionEnabled){
+        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
+                transpositionEnabled, aspirationEnabled, pvsEnabled,
+                ttMoveHandoff, quiescenceEnabled, threatTermsEnabled,
+                repetitionEnabled);
     }
 
     private GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
                      Long randomSeed, boolean verbose, boolean transpositionEnabled,
                      boolean aspirationEnabled, boolean pvsEnabled,
-                     boolean ttMoveHandoff){
+                     boolean ttMoveHandoff, boolean quiescenceEnabled,
+                     boolean threatTermsEnabled, boolean repetitionEnabled){
         this.maxPlayer = maxPlayer;
         this.minPlayer = minPlayer;
         this.timeBudgetMillis = timeBudgetMillis;
@@ -258,6 +325,9 @@ public class GameTree {
         this.aspirationEnabled = aspirationEnabled;
         this.pvsEnabled = pvsEnabled;
         this.ttMoveHandoff = ttMoveHandoff;
+        this.quiescenceEnabled = quiescenceEnabled;
+        this.threatTermsEnabled = threatTermsEnabled;
+        this.repetitionEnabled = repetitionEnabled;
 
         switch (maxPlayer){
             case WHITE:
@@ -413,6 +483,16 @@ public class GameTree {
             addRepetitionPosition(arrangement);
     }
 
+    /**
+     * T15 test hook: number of arrangements in the anti-repetition history.
+     * 0 after every search when repetitionEnabled is false (no append);
+     * grows by one per getBestMoveQuick call when it is on. The wiring of
+     * the flag is pinned via this counter in tests.EngineLevelTest.
+     */
+    public int getRepetitionHistorySize(){
+        return repetitionHistory.size();
+    }
+
     private void addRepetitionPosition(long arrangementHash){
         repetitionHistory.addLast(arrangementHash);
         while (repetitionHistory.size() > REPETITION_HISTORY_LIMIT)
@@ -432,9 +512,12 @@ public class GameTree {
         random = nextRandom();
         resetSearchCounters();
         //T10: remember this arrangement so the root loop can penalize a
-        //move that returns to it (shuffle-breaking; root only).
-        addRepetitionPosition(arrangementHash(board.getZobristHash(),
-                board.getCurrentPlayer()));
+        //move that returns to it (shuffle-breaking; root only). T15:
+        //skipped entirely when the repetition guard is disabled (the t2-
+        //t6 engine levels predate it).
+        if (repetitionEnabled)
+            addRepetitionPosition(arrangementHash(board.getZobristHash(),
+                    board.getCurrentPlayer()));
         int level = 1;
         lastCompletedLevel = 0;
         GameStep snapshot = board.createMemento();
@@ -582,9 +665,11 @@ public class GameTree {
         random = nextRandom();
         resetSearchCounters();
         //T10: same history append as the no-arg overload (both enter the
-        //search at the root, where the penalty is applied).
-        addRepetitionPosition(arrangementHash(board.getZobristHash(),
-                board.getCurrentPlayer()));
+        //search at the root, where the penalty is applied). T15: gated on
+        //repetitionEnabled, as in the no-arg overload.
+        if (repetitionEnabled)
+            addRepetitionPosition(arrangementHash(board.getZobristHash(),
+                    board.getCurrentPlayer()));
         try {
             Object[] result = alphaBeta(depth, maxPlayer, Integer.MIN_VALUE, Integer.MAX_VALUE);
             lastCompletedLevel = depth;
@@ -719,6 +804,14 @@ public class GameTree {
         if (depth == 0){
             // T3: at the horizon, do not trust the static score while
             // captures are available: extend through captures only.
+            // T15: the t2/t4/t6 engine levels search pre-T3 — the stand-pat
+            // static score is returned directly, exactly as the pre-T3
+            // depth-0 exit did (the T4 terms are still subject to
+            // threatTermsEnabled: t2 evaluates pre-T4, t3/t4/t6 evaluate
+            // with the terms on).
+            if (!quiescenceEnabled)
+                return new Object[]{strategy.analyze(threatTermsEnabled),
+                        null};
             return quiescence(player, legalMoves, alpha, beta, qDepth);
         }
 
@@ -833,6 +926,7 @@ public class GameTree {
             // Applied after the child returns and before the undo, so the
             // board state is exactly the resulting position's.
             if (isRoot
+                    && repetitionEnabled
                     && repetitionHistory.contains(arrangementHash(
                             board.getZobristHash(), board.getCurrentPlayer())))
                 score -= REPETITION_PENALTY;
@@ -971,7 +1065,10 @@ public class GameTree {
         if (qDepth >= Q_MAX_DEPTH)
             qBoundHits++;
 
-        int standPat = GameAnalyzer.analyze(board, strategy);
+        // T15: the stand-pat evaluation honors threatTermsEnabled (the t2
+        // level evaluates pre-T4; the term is mirror-invariant either way,
+        // so T8's invariant holds with it both on and off).
+        int standPat = strategy.analyze(threatTermsEnabled);
 
         if (player == maxPlayer) {
 

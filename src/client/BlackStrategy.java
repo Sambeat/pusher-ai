@@ -17,6 +17,11 @@ public class BlackStrategy implements Strategy {
 
     @Override
     public int analyze(){
-        return GameAnalyzer.analyzeFor(board, Player.BLACK);
+        return analyze(true);
+    }
+
+    @Override
+    public int analyze(boolean threatTermsEnabled){
+        return GameAnalyzer.analyzeFor(board, Player.BLACK, threatTermsEnabled);
     }
 }
