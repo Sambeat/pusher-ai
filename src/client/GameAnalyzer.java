@@ -178,10 +178,10 @@ public class GameAnalyzer {
         int total = 0;
 
         for (Piece piece : board.getPieceList()){
-            if (piece instanceof Pushee
-                    && piece.getOwner() == player
-                    && piece.getRow() == goalRow - player.direction()
-                    && canWinNextMove(piece, goalRow))
+            if (piece instanceof Pushee pushee
+                    && pushee.getOwner() == player
+                    && pushee.getRow() == goalRow - player.direction()
+                    && canWinNextMove(pushee, goalRow))
                 total += READY_TO_WIN;
         }
 
@@ -211,14 +211,14 @@ public class GameAnalyzer {
         int total = 0;
 
         for (Piece piece : board.getPieceList()){
-            if (!(piece instanceof Pushee) || piece.getOwner() != enemy)
+            if (!(piece instanceof Pushee pushee) || pushee.getOwner() != enemy)
                 continue;
-            if (!canWinNextMove(piece, goalRowOf(enemy)))
+            if (!canWinNextMove(pushee, goalRowOf(enemy)))
                 continue;
 
-            int row = piece.getRow();
-            int col = piece.getColumn();
-            int dir = piece.getDirection();
+            int row = pushee.getRow();
+            int col = pushee.getColumn();
+            int dir = pushee.getDirection();
 
             for (int dc = -1; dc <= 1; dc++){
                 int destCol = col + dc;
@@ -235,9 +235,9 @@ public class GameAnalyzer {
 
                 Piece occupant = board.getSquare(mirrorRow, mirrorCol).getPiece();
 
-                if (occupant instanceof Pusher && occupant.getOwner() == player)
+                if (occupant instanceof Pusher pusher && pusher.getOwner() == player)
                     total += PUSHEE_SHIELD;      // friendly Pusher occupies the push square
-                else if (occupant instanceof Pusher && occupant.getOwner() == enemy
+                else if (occupant instanceof Pusher pusher && pusher.getOwner() == enemy
                         && hasMoveTo(board, player,
                                      board.getSquare(mirrorRow, mirrorCol)))
                     total += PUSHEE_SHIELD;      // the enemy pusher can be captured

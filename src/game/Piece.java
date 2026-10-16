@@ -10,7 +10,7 @@ import java.util.Arrays;
  * @author Samuel Charade
  * @since 10/29/2015.
  */
-public abstract class Piece implements Cloneable {
+public sealed abstract class Piece implements Cloneable permits Pusher, Pushee {
 
     static final int POSSIBLE_MOVES = 3;
 

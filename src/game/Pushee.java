@@ -8,7 +8,7 @@ import java.util.ArrayList;
  * @author Samuel Charade
  * @since 10/29/2015.
  */
-public class Pushee extends Piece{
+public final class Pushee extends Piece{
 
     public static final int ID = 0;
     private static final int LOWERCASE_DELTA = 32;
@@ -43,7 +43,7 @@ public class Pushee extends Piece{
                 possiblePusher = possiblePusherSquare.getPiece();
 
             //Make sure its populated by a Pusher owned by this player.
-            if (possiblePusher instanceof  Pusher && possiblePusher.isOwner(this.getOwner()))
+            if (possiblePusher instanceof Pusher p && p.isOwner(this.getOwner()))
                 legalMoves.add(new Move(this.getPosition(), legalDestination));
 
         }

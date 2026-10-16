@@ -63,10 +63,9 @@ public class BoardSquare implements Cloneable {
         if (this == toCompare) {
             return true;
         }
-        if (!(toCompare instanceof BoardSquare)) {
+        if (!(toCompare instanceof BoardSquare other)) {
             return false;
         }
-        BoardSquare other = (BoardSquare) toCompare;
         //Value-based identity: Move.equals() relies on it. Without this override
         //Moves were only equal when referencing the exact same BoardSquare objects.
         return row == other.row && column == other.column;

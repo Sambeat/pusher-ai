@@ -186,12 +186,12 @@ public class TranspositionTable {
      * &lt;= alpha. The depth check is the caller's job.
      */
     public static boolean usable(Entry entry, int alpha, int beta){
-        switch (entry.flag()){
-            case EXACT: return true;
-            case LOWER: return entry.score() >= beta;
-            case UPPER: return entry.score() <= alpha;
-            default:    throw new IllegalStateException("unknown flag");
-        }
+        //Exhaustive on the Flag enum: no default needed.
+        return switch (entry.flag()){
+            case EXACT -> true;
+            case LOWER -> entry.score() >= beta;
+            case UPPER -> entry.score() <= alpha;
+        };
     }
 
     /** Total probes since construction (bench hook). */

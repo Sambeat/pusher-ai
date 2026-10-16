@@ -11,6 +11,7 @@ import java.util.Random;
 
 import game.GameBoard;
 import game.Move;
+import game.Piece;
 import game.Player;
 import game.Pushee;
 import game.Pusher;
@@ -84,10 +85,10 @@ public class PusherApplication {
 	public static void run(InputStream in, OutputStream out) throws IOException {
 		//main() already hands over buffered socket streams; wrapping them again
 		//would only add a redundant buffering layer.
-		BufferedInputStream input = (in instanceof BufferedInputStream)
-				? (BufferedInputStream) in : new BufferedInputStream(in);
-		BufferedOutputStream output = (out instanceof BufferedOutputStream)
-				? (BufferedOutputStream) out : new BufferedOutputStream(out);
+		BufferedInputStream input = in instanceof BufferedInputStream bis
+				? bis : new BufferedInputStream(in);
+		BufferedOutputStream output = out instanceof BufferedOutputStream bos
+				? bos : new BufferedOutputStream(out);
 
 		while (true) {
 
@@ -295,22 +296,17 @@ public class PusherApplication {
 		int x = 7, y = 7;
 		for (int i = 0; i < boardValues.length; i++) {
 
-			switch (Integer.parseInt(boardValues[i])) {
-
-			case 1:
-				board.putPiece(new Pushee(Player.BLACK), y, x);
-				break;
-			case 2:
-				board.putPiece(new Pusher(Player.BLACK), y, x);
-				break;
-			case 3:
-				board.putPiece(new Pushee(Player.WHITE), y, x);
-				break;
-			case 4:
-				board.putPiece(new Pusher(Player.WHITE), y, x);
-				break;
-			default:
-				break;
+			//Unknown tokens stay null: no piece, but the x/y walk below
+			//advances exactly as before.
+			Piece piece = switch (Integer.parseInt(boardValues[i])) {
+			case 1 -> new Pushee(Player.BLACK);
+			case 2 -> new Pusher(Player.BLACK);
+			case 3 -> new Pushee(Player.WHITE);
+			case 4 -> new Pusher(Player.WHITE);
+			default -> null;
+			};
+			if (piece != null) {
+				board.putPiece(piece, y, x);
 			}
 
 			x--;

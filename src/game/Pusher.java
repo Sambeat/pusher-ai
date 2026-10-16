@@ -7,7 +7,7 @@ import java.util.ArrayList;
  * @author Samuel Charade
  * @since 10/29/2015.
  */
-public class Pusher extends Piece {
+public final class Pusher extends Piece {
 
     public static final int ID = 1;
     public static final int VALUE = 7;
