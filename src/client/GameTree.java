@@ -139,9 +139,40 @@ public class GameTree {
     // search; always 0 when PVS is disabled.
     private int pvsResearched;
 
+    // T14 item 1 test hook: internal nodes (depth > 0, non-root) of the most
+    // recent search whose ordered FIRST move came from a TT entry (the active
+    // gate's best move was still legal). The audit's measurement ran this
+    // counter with the current gate (entry.depth >= depth) and the relaxed
+    // gate (any entry depth); the fixed behavior keeps the relaxed gate at
+    // internal nodes while the ROOT stays on its strictly-shallower rule.
+    private long ttOrderHits;
+
+    // T14 item 5 test hooks: q-nodes visited by the most recent search, and
+    // how many of them hit the Q_MAX_DEPTH capture-ply cap (the
+    // qDepth >= Q_MAX_DEPTH exit that returns stand-pat early).
+    private long qNodeCount;
+    private long qBoundHits;
+
+    // T14 item 1: when true (the default — the fixed behavior), internal
+    // nodes order by the TT best move from an entry at ANY stored depth: the
+    // standard iterative-deepening handoff (the previous level's best move —
+    // at a node, the previous level's entry is exactly one depth shallower
+    // than the probe, so the pre-T14 gate below never saw it below the root)
+    // plus same-depth/deeper entries. False restores the pre-T14 gate
+    // (entries searched at least as deep only) for the score-invariance
+    // test. Ordering only: it never affects returned values — the
+    // score-return gate in alphaBeta stays strict in all cases, and the
+    // ROOT keeps its strictly-shallower rule (root ties must stay
+    // shuffle-random, pinned by testRandomnessForMoreThanOneMove).
+    private final boolean ttMoveHandoff;
 
     public GameTree(Player maxPlayer, Player minPlayer){
-        this(maxPlayer, minPlayer, MAX_TIME_MILLIS, null, true, true, true, true);
+        // NOTE: delegates to the 9-argument private constructor (verbose,
+        // tt, aspiration, pvs, handoff). An 8-argument this() call would
+        // silently bind to the public 8-argument overload below and shift
+        // every flag — do not "simplify" this.
+        this(maxPlayer, minPlayer, MAX_TIME_MILLIS, null, true, true, true,
+                true, true);
     }
 
     /**
@@ -156,7 +187,8 @@ public class GameTree {
      *             non-deterministic play.
      */
     public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis, Long seed){
-        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false, true, true, true);
+        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false, true, true,
+                true, true);
     }
 
     /**
@@ -167,7 +199,7 @@ public class GameTree {
     public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
                     Long seed, boolean transpositionEnabled){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, true, true);
+                transpositionEnabled, true, true, true);
     }
 
     /**
@@ -180,7 +212,7 @@ public class GameTree {
                     Long seed, boolean transpositionEnabled,
                     boolean aspirationEnabled){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, aspirationEnabled, true);
+                transpositionEnabled, aspirationEnabled, true, true);
     }
 
     /**
@@ -194,12 +226,29 @@ public class GameTree {
                     Long seed, boolean transpositionEnabled,
                     boolean aspirationEnabled, boolean pvsEnabled){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, aspirationEnabled, pvsEnabled);
+                transpositionEnabled, aspirationEnabled, pvsEnabled, true);
+    }
+
+    /**
+     * T14 item 1: like the 7-argument constructor, with the internal-node TT
+     * best-move handoff explicitly enabled or disabled (the score-invariance
+     * test searches the same positions both ways; see the ttMoveHandoff
+     * field for what the flag controls). Default in all other constructors:
+     * enabled (the fixed behavior).
+     */
+    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
+                    Long seed, boolean transpositionEnabled,
+                    boolean aspirationEnabled, boolean pvsEnabled,
+                    boolean ttMoveHandoff){
+        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
+                transpositionEnabled, aspirationEnabled, pvsEnabled,
+                ttMoveHandoff);
     }
 
     private GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
                      Long randomSeed, boolean verbose, boolean transpositionEnabled,
-                     boolean aspirationEnabled, boolean pvsEnabled){
+                     boolean aspirationEnabled, boolean pvsEnabled,
+                     boolean ttMoveHandoff){
         this.maxPlayer = maxPlayer;
         this.minPlayer = minPlayer;
         this.timeBudgetMillis = timeBudgetMillis;
@@ -208,6 +257,7 @@ public class GameTree {
         this.tt = transpositionEnabled ? new TranspositionTable() : null;
         this.aspirationEnabled = aspirationEnabled;
         this.pvsEnabled = pvsEnabled;
+        this.ttMoveHandoff = ttMoveHandoff;
 
         switch (maxPlayer){
             case WHITE:
@@ -253,6 +303,14 @@ public class GameTree {
     }
 
     /**
+     * T14 item 2b bench hook: probes rejected by the transposition table's
+     * turn-number guard since construction (0 when the table was disabled).
+     */
+    public long getTTTurnGuardMisses(){
+        return tt == null ? 0 : tt.turnGuardMisses();
+    }
+
+    /**
      * T13 test hook: alphaBeta node visits by the most recent search
      * (main-search nodes and q-nodes alike). Reset at the start of each
      * getBestMoveQuick/debugSearch.
@@ -275,6 +333,43 @@ public class GameTree {
      */
     public int getPvsResearched(){
         return pvsResearched;
+    }
+
+    /**
+     * T14 item 1 test hook: internal nodes of the most recent search whose
+     * ordered first move came from a TT entry (see the ttOrderHits field).
+     * Reset at the start of each search.
+     */
+    public long getTtOrderHits(){
+        return ttOrderHits;
+    }
+
+    /**
+     * T14 item 5 test hook: q-nodes visited by the most recent search
+     * (stand-pat + capture extension nodes). Reset at the start of each
+     * search.
+     */
+    public long getQNodeCount(){
+        return qNodeCount;
+    }
+
+    /**
+     * T14 item 5 test hook: how many of the most recent search's q-nodes hit
+     * the Q_MAX_DEPTH capture-ply cap (returned stand-pat without searching
+     * captures). 0 means the cap never bound in that search.
+     */
+    public long getQBoundHits(){
+        return qBoundHits;
+    }
+
+    /**
+     * T14 item 4 test hook: replace the transposition table. The PVS × TT
+     * dirty-table fuzz (tests.GameTreeTest) probes a table still dirty from
+     * ANOTHER tree's search — the table must be from the same maxPlayer
+     * perspective (scores are never sign-converted, see the field's doc).
+     */
+    public void setTranspositionTable(TranspositionTable tt){
+        this.tt = tt;
     }
 
     /**
@@ -335,9 +430,7 @@ public class GameTree {
     public Move getBestMoveQuick(){
         start = System.currentTimeMillis();
         random = nextRandom();
-        nodeCount = 0;
-        aspirationRetries = 0;
-        pvsResearched = 0;
+        resetSearchCounters();
         //T10: remember this arrangement so the root loop can penalize a
         //move that returns to it (shuffle-breaking; root only).
         addRepetitionPosition(arrangementHash(board.getZobristHash(),
@@ -446,9 +539,7 @@ public class GameTree {
     public int aspirationScoreAtDepth(int maxDepth){
         start = System.currentTimeMillis();
         random = nextRandom();
-        nodeCount = 0;
-        aspirationRetries = 0;
-        pvsResearched = 0;
+        resetSearchCounters();
         GameStep snapshot = board.createMemento();
         Object[] moveInfo = null;
         int prevScore = 0;
@@ -468,6 +559,20 @@ public class GameTree {
     }
 
     /**
+     * Resets every per-search counter (nodeCount, aspirationRetries,
+     * pvsResearched, ttOrderHits, qNodeCount, qBoundHits) at the start of a
+     * search. Each of the search entry points calls this once.
+     */
+    private void resetSearchCounters(){
+        nodeCount = 0;
+        aspirationRetries = 0;
+        pvsResearched = 0;
+        ttOrderHits = 0;
+        qNodeCount = 0;
+        qBoundHits = 0;
+    }
+
+    /**
      * Look ahead a specified number of move to decide the best move to play.
      * @param depth The number of move ahead to look.
      * @return The best Move, or null when the side to move has no legal move.
@@ -475,8 +580,7 @@ public class GameTree {
     public Move getBestMoveQuick(int depth){
         start = System.currentTimeMillis();
         random = nextRandom();
-        nodeCount = 0;
-        pvsResearched = 0;
+        resetSearchCounters();
         //T10: same history append as the no-arg overload (both enter the
         //search at the root, where the penalty is applied).
         addRepetitionPosition(arrangementHash(board.getZobristHash(),
@@ -504,8 +608,7 @@ public class GameTree {
     public int debugSearchScore(int depth, int alpha, int beta){
         start = System.currentTimeMillis();
         random = nextRandom();
-        nodeCount = 0;
-        pvsResearched = 0;
+        resetSearchCounters();
         try {
             return (Integer) alphaBeta(depth, maxPlayer, alpha, beta)[0];
         } catch (Exception e){
@@ -647,9 +750,21 @@ public class GameTree {
         if (isRoot)
             ttOrderMove = (ttEntry != null && ttEntry.depth < depth)
                     ? ttEntry.bestMove : null;
+        else if (ttMoveHandoff)
+            // T14 item 1 (the fixed behavior): the standard ID handoff — the
+            // previous level's best move (the entry one depth shallower than
+            // the probe) plus same-depth/deeper entries, at any stored depth.
+            // Measured on the full board: -47% nodes at depth 9 (1.91M vs
+            // 3.62M at seed 42), scores unchanged (pinned in GameTreeTest).
+            ttOrderMove = (ttEntry != null && ttEntry.bestMove != null)
+                    ? ttEntry.bestMove : null;
         else
             ttOrderMove = (ttEntry != null && ttEntry.depth >= depth)
                     ? ttEntry.bestMove : null;
+        if (!isRoot && depth > 0
+                && ttOrderMove != null
+                && legalMoves.contains(ttOrderMove))
+            ttOrderHits++;
         orderMoves(legalMoves, ttOrderMove, player);
 
         int originalAlpha = alpha;
@@ -849,6 +964,13 @@ public class GameTree {
      */
     private Object[] quiescence(Player player, ArrayList<Move> legalMoves,
                                 int alpha, int beta, int qDepth) throws Exception {
+        // T14 item 5 (measurement): count q-nodes and how many of them hit
+        // the capture-ply cap (qDepth >= Q_MAX_DEPTH returns stand-pat
+        // without searching captures).
+        qNodeCount++;
+        if (qDepth >= Q_MAX_DEPTH)
+            qBoundHits++;
+
         int standPat = GameAnalyzer.analyze(board, strategy);
 
         if (player == maxPlayer) {

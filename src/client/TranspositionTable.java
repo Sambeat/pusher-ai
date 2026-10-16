@@ -94,6 +94,18 @@ public class TranspositionTable {
     private long probes;
     private long hits;
 
+    /**
+     * T14 item 2b: probes that matched a stored key but a DIFFERENT turn
+     * number (treated as a miss). This is what the turn-number guard catches:
+     * a direct-mapped collision with another position of the same key is
+     * impossible at 64 bits (the key IS the 64-bit hash), so these are the
+     * same position reached at a different turn number (a game cycle) or the
+     * truncation-error cases the guard exists for. A nonzero rate is
+     * expected and harmless (the miss is the correct behavior); the audit
+     * measures it over a full-board game.
+     */
+    private long turnGuardMisses;
+
     /** The default 1 &lt;&lt; 20-entry table. */
     public TranspositionTable(){
         this(1 << 20);
@@ -158,6 +170,8 @@ public class TranspositionTable {
             return new Entry(hashes[i], depths[i], scores[i],
                     Flag.values()[flags[i]], bestMoves[i]);
         }
+        if (depths[i] != -1 && hashes[i] == hash && turns[i] != turnNumber)
+            turnGuardMisses++; // T14 item 2b: the guard caught a key/turn mismatch
         return null;
     }
 
@@ -200,6 +214,14 @@ public class TranspositionTable {
     /** Total hits since construction (bench hook). */
     public long hits(){
         return hits;
+    }
+
+    /**
+     * T14 item 2b: probes rejected by the turn-number guard (stored key
+     * matched, turn number did not) since construction.
+     */
+    public long turnGuardMisses(){
+        return turnGuardMisses;
     }
 
 }
