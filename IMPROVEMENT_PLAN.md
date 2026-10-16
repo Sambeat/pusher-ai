@@ -55,7 +55,7 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 (if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
 ./build.sh test
-# Expected: OK (131 tests). GameTreeTest takes ~5 s (real time-limited searches);
+# Expected: OK (135 tests). GameTreeTest takes ~5 s (real time-limited searches);
 # PusherApplicationTest drives full-budget searches (a few seconds).
 # (Count history: 42 at T1, +20 from T5's RulesContractTest, +2 from T7's
 # BenchTest, +3 from T3's QuiescenceTest, +14 from T4's ThreatEvalTest,
@@ -81,7 +81,9 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 # +10 from T15 (9 EngineLevelTest: speed-only value identity, stack
 # collapse, pre-T4 eval floor, quiescence wiring, repetition wiring,
 # level parsing/monotone stack, t13==current, CLI rejections, A/B
-# determinism; 1 EvalSymmetryTest: mirror with threat terms off).)
+# determinism; 1 EvalSymmetryTest: mirror with threat terms off),
+# +4 from T16 (4 MoveOrderingTest: score invariance, node reduction,
+# shuffle pin through the explicit flag, T14 handoff still firing).)
 ```
 JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
 sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
@@ -1804,6 +1806,90 @@ bucket shuffle preserves it) and with TT entry quality (early levels order by
 stale, shallow best moves; the proximity key must be exact: direction-aware
 row arithmetic, edge files). **Estimate.** 1–1.5 sessions.
 
+#### T16 Findings
+
+Acceptance: **1 — MET (three VisualGame runs: per-move median 9/8/9, max
+11/10/11; gate is median ≥ 8, max ≥ 9; pre-T16 reference median 9 / max 12);
+2 — MET (5/5, 13 plies, depth 13; avgMsPerMove 33.2/35.8 — faster than
+T14's uncontended 46.8; the requirement's "~80 (T13 Part B)" reference is
+stale, superseded by T14); 3 — MET (t16 wins 12/20 = 60% ≥ 55%; the +20pp
+is uniform across both color cells, i.e. an engine effect, not tempo).**
+
+**Setup for the measurements.** Full board (32-piece start), 4950 ms budget,
+seed 42, 20 games per matchup, colors alternating per game (engine A = t16
+is WHITE in games 1,3,…,19 and BLACK in games 2,4,…,20; White always moves
+first). One JVM per measurement, machine otherwise idle. Fixed-depth
+ablation: the T14 audit's conditions (single tree per variant, full window,
+TT + PVS on, `debugSearchScore(d, −∞, +∞)` at depths 1..N, each seeded from
+the same seed). All runs: 0 truncated games.
+
+**Strength gate — `--ab t16 t13`.**
+`{"games":20,"aWins":12,"bWins":8,"aWinsAsWhite":8,"aWinsAsBlack":4,
+"truncated":0,"avgPlies":60.00,"avgMaxDepthA":11.40,"avgMaxDepthB":10.75}`
+t16 wins 60% ≥ 55%. The split is clean by color: t16 wins 8/10 as WHITE and
+4/10 as BLACK, against t13's 6/10 as WHITE and 2/10 as BLACK — a uniform
++20pp engine effect in BOTH color cells, not a first-move artifact. (The
+tempo effect is visible separately: the WHITE side won 14/20 of the games
+regardless of engine, consistent with T15's mirror finding of a +15pp
+tempo effect on the full board.) avgMaxDepth 11.40 vs 10.75: at a fixed
+budget t16 completes roughly two-thirds of a level more per move on
+average. Per T15's sample-size caveat, 20pp ≈ 1.8σ at n=20 — indicative,
+not conclusive; but unlike the T15 mirror (a 7/13 pure-tempo split) this
+one decomposes into an engine effect, uniform across colors, and the depth
+profile backs it.
+
+**Ablation (which ordering piece did the work).** Full board, TT + PVS on,
+full window, seed 42; node counts per depth (— = not measured):
+
+| variant | d6 | d7 | d8 | d9 |
+|---|---|---|---|---|
+| baseline (handoff off, proximity off) | 25,521 | 207,612 | 411,282 | — |
+| handoff only (t13) | 19,740 | 206,175 | 254,498 | 1,909,140 |
+| proximity only (handoff off) | 23,716 | 237,854 | 465,929 | — |
+| both on (t16) | 19,611 | 234,659 | 249,716 | 1,782,327 |
+
+The t13 column reproduces the T14 audit exactly (254,498 / 1,909,140).
+At depths 6–7 proximity alone is WORSE than baseline (d7: 237,854 vs
+207,612, +14.6%; combined: 234,659 vs 206,175, +13.8%) — the advance-first
+ordering fights the TT handoff at mid depths. The crossover arrives at
+depth 9 — the level the 4950 ms budget actually spends its time on:
+combined is −6.6% vs handoff-only (1,782,327 vs 1,909,140). That is the
+fixed-time win: it surfaces as avgMaxDepth 11.40 vs 10.75 in the strength
+run, and the VisualGame per-move profile holds (median 8–9, max 10–11 vs
+the pre-T16 reference median 9 / max 12). Record: the T14 handoff does the
+mid-depth work; T16's proximity costs a little at d6–d7 and pays at d9+.
+
+**Full board 4950 ms (VisualGame, seed 42, three runs).** Per-move depth:
+run 1 n=67 median 9 max 11 (mean 8.12); run 2 n=43 median 8 max 10 (mean
+7.37); run 3 n=56 median 9 max 11 (mean 8.02). Gate (median ≥ 8, max ≥ 9):
+met in all three runs; the target (median 9 / max 10–11) is met on 2 of 3
+medians and 3 of 3 maxes. No regression vs the T15 reference (median 9 /
+max 12, n=72); the pre-T16 max-12 line did not recur in these runs.
+
+**2000 ms small-board bench (`--games 10 --budget 2000 --seed 42`, two
+uncontended runs).** 5/5, 13 plies, depth 13 in both runs — unchanged from
+T13 Part B and T14. avgMsPerMove 33.17 / 35.84 vs T14's uncontended 46.8
+(−24% / −27%): the forced-win level's widening retries got cheaper, in line
+with the d9 node reduction. (The requirement's "~80 (T13 Part B)" is the
+pre-T14 number; against either reference this is a speedup, not a
+regression. A first measurement under 5-way CPU contention read 58.77 —
+within that contention's inflation; the uncontended pair is the record.)
+
+**Tests (requirement 3).** New `tests.MoveOrderingTest` (4 tests): score
+invariance (5 positions × depths 2–4, on vs off — full window exact either
+way), the node-reduction pin (full board depth 4, TT off AND TT on: ordering
+on visits strictly fewer nodes at the same score), the shuffle pin through
+the explicit flag (the testRandomnessForMoreThanOneMove geometry — every
+quiet move lands in one proximity bucket, so the within-bucket shuffle must
+keep both pieces choosable), and the T14 handoff still firing with ordering
+on (getTtOrderHits > 0 at ID levels 3–4; level 2 is legitimately 0 — the
+level-1 search stores only its root entry, q-nodes never store, and the
+root entry applies to the root only). `Bench.Level` gains the `ordering`
+field and the T16 level ("current" now aliases t16); EngineLevelTest's
+level-stack and current-identity tests track it. Full suite 135 green ×2;
+the pre-T16 tests pass unmodified except the two EngineLevelTest level-stack
+pins this task owns (t13→t16 for "current").
+
 ---
 
 ## Suggested execution order
@@ -1821,7 +1907,7 @@ T13: after T6 (needs TT + move ordering for PVS to be effective) — MERGED
 T14 (audit)  ┐ independent of each other; both after T13, run in parallel
 T15 (A/B)    ┘
 T16: after T14 + T15 (T14's verdicts on the plateau suspects; T15's
-     harness is T16's strength gate)
+     harness is T16's strength gate) — MERGED
 ```
 
 **Deliberately not planned** (and why):

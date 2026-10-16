@@ -302,18 +302,18 @@ public class EngineLevelTest {
     }
 
     // ------------------------------------------------------------------
-    // Requirement 2 — levels: parsing, the monotone stack, t13 == current
+    // Requirement 2 — levels: parsing, the monotone stack, t16 == current
     // ------------------------------------------------------------------
 
     /**
-     * "current" is an alias for t13 (the same constant), unknown levels
+     * "current" is an alias for t16 (the same constant), unknown levels
      * are rejected at parse time, and the stack is monotone in merge
      * order: each level contains every earlier level's features plus at
-     * least one more (t2 is the bare base, t13 the full current engine).
+     * least one more (t2 is the bare base, t16 the full current engine).
      */
     @Test
     public void levelsParseAndFormAMonotoneStack() {
-        assertSame("current must alias t13", Level.T13,
+        assertSame("current must alias t16", Level.T16,
                 Level.parse("current"));
         assertEquals(Level.T2, Level.parse("t2"));
         assertEquals(Level.T3, Level.parse("t3"));
@@ -321,11 +321,12 @@ public class EngineLevelTest {
         assertEquals(Level.T6, Level.parse("t6"));
         assertEquals(Level.T10, Level.parse("t10"));
         assertEquals(Level.T13, Level.parse("t13"));
+        assertEquals(Level.T16, Level.parse("t16"));
         assertNull("an unknown level must not parse", Level.parse("bogus"));
         assertNull("null must not parse", Level.parse(null));
 
         Level[] stack = {Level.T2, Level.T3, Level.T4, Level.T6, Level.T10,
-                Level.T13};
+                Level.T13, Level.T16};
         for (int i = 1; i < stack.length; i++) {
             Level earlier = stack[i - 1];
             Level later = stack[i];
@@ -346,26 +347,31 @@ public class EngineLevelTest {
                     ? later.aspiration : true);
             assertTrue(later.key() + " must keep " + earlier.key()
                     + "'s PVS", earlier.pvs ? later.pvs : true);
+            assertTrue(later.key() + " must keep " + earlier.key()
+                    + "'s proximity ordering", earlier.ordering
+                    ? later.ordering : true);
         }
         // And each step adds at least one feature (the stack strictly
-        // grows: t2 bare, t13 full).
+        // grows: t2 bare, t16 full).
         assertFalse("t2 must be the bare base",
                 Level.T2.quiescence || Level.T2.threatTerms
                         || Level.T2.transposition || Level.T2.repetition
-                        || Level.T2.aspiration || Level.T2.pvs);
-        assertTrue("t13 must be the full current engine",
-                Level.T13.quiescence && Level.T13.threatTerms
-                        && Level.T13.transposition && Level.T13.repetition
-                        && Level.T13.aspiration && Level.T13.pvs);
+                        || Level.T2.aspiration || Level.T2.pvs
+                        || Level.T2.ordering);
+        assertTrue("t16 must be the full current engine",
+                Level.T16.quiescence && Level.T16.threatTerms
+                        && Level.T16.transposition && Level.T16.repetition
+                        && Level.T16.aspiration && Level.T16.pvs
+                        && Level.T16.ordering);
     }
 
     /**
-     * t13 IS the current engine: a tree built through the level plumbing
-     * (Bench.treeFor) searches identically to the pre-T15 4-argument
-     * constructor (every off-flag defaulting to on).
+     * t16 IS the current engine: a tree built through the level plumbing
+     * (Bench.treeFor) searches identically to the 4-argument constructor
+     * (every off-flag defaulting to on).
      */
     @Test
-    public void t13IsBitIdenticalToTheCurrentEngine() {
+    public void t16IsBitIdenticalToTheCurrentEngine() {
         final int[] depths = {2, 3, 4};
         for (String which : new String[]{"race", "tactical",
                 "defaultStart"}) {
@@ -373,7 +379,7 @@ public class EngineLevelTest {
                 setT15Position(which);
                 Player max = board.getCurrentPlayer();
                 Player min = max.other();
-                int viaLevel = Bench.treeFor(Level.T13, max, min, BUDGET,
+                int viaLevel = Bench.treeFor(Level.T16, max, min, BUDGET,
                         SEED)
                         .debugSearchScore(depth, Integer.MIN_VALUE,
                                 Integer.MAX_VALUE);
@@ -381,8 +387,8 @@ public class EngineLevelTest {
                 int legacy = new GameTree(max, min, BUDGET, SEED)
                         .debugSearchScore(depth, Integer.MIN_VALUE,
                                 Integer.MAX_VALUE);
-                assertEquals(which + " depth " + depth + ": treeFor(T13) "
-                        + "must equal the pre-T15 constructor", viaLevel,
+                assertEquals(which + " depth " + depth + ": treeFor(T16) "
+                        + "must equal the 4-argument constructor", viaLevel,
                         legacy);
             }
         }

@@ -41,8 +41,10 @@ import java.util.Locale;
  *   t4    = t3 + threat terms (T4)
  *   t6    = t4 + transposition table (T6, incl. the T14 ordering handoff)
  *   t10   = t6 + anti-repetition (T10)
- *   t13   = t10 + aspiration windows + PVS (T13) = the current engine
- *   current = alias for t13
+ *   t13   = t10 + aspiration windows + PVS (T13)
+ *   t16   = t13 + goal-proximity ordering of quiet moves (T16)
+ *          = the current engine
+ *   current = alias for t16
  *
  * Mirror mode with no --engine (or --engine current) is bit-identical to
  * the pre-T15 bench: every feature off-flag defaults to on.
@@ -83,19 +85,21 @@ public class Bench {
     private static final int[] PUSHEE_COLS = {1, 3, 4};
 
     /**
-     * T15: a monotone engine feature stack in merge order. Each level adds
-     * exactly the feature that merged in that task; t13 is the current
-     * engine (every default-on flag) and "current" is its alias. The t2
-     * base is the pre-T3 stack (no quiescence, no threat terms, no TT, no
-     * repetition, no aspiration, no PVS).
+     * T15 (extended by T16): a monotone engine feature stack in merge
+     * order. Each level adds exactly the feature that merged in that task;
+     * t16 is the current engine (every default-on flag) and "current" is
+     * its alias. The t2 base is the pre-T3 stack (no quiescence, no threat
+     * terms, no TT, no repetition, no aspiration, no PVS, no proximity
+     * ordering).
      */
     public enum Level {
-        T2("t2",    false, false, false, false, false, false),
-        T3("t3",    true,  false, false, false, false, false),
-        T4("t4",    true,  true,  false, false, false, false),
-        T6("t6",    true,  true,  true,  false, false, false),
-        T10("t10",  true,  true,  true,  true,  false, false),
-        T13("t13",  true,  true,  true,  true,  true,  true);
+        T2("t2",    false, false, false, false, false, false, false),
+        T3("t3",    true,  false, false, false, false, false, false),
+        T4("t4",    true,  true,  false, false, false, false, false),
+        T6("t6",    true,  true,  true,  false, false, false, false),
+        T10("t10",  true,  true,  true,  true,  false, false, false),
+        T13("t13",  true,  true,  true,  true,  true,  true,  false),
+        T16("t16",  true,  true,  true,  true,  true,  true,  true);
 
         public final boolean quiescence;     // T3
         public final boolean threatTerms;    // T4
@@ -103,11 +107,12 @@ public class Bench {
         public final boolean repetition;     // T10
         public final boolean aspiration;     // T13 Part A
         public final boolean pvs;            // T13 Part B
+        public final boolean ordering;       // T16
         private final String key;
 
         Level(String key, boolean quiescence, boolean threatTerms,
               boolean transposition, boolean repetition,
-              boolean aspiration, boolean pvs) {
+              boolean aspiration, boolean pvs, boolean ordering) {
             this.key = key;
             this.quiescence = quiescence;
             this.threatTerms = threatTerms;
@@ -115,19 +120,21 @@ public class Bench {
             this.repetition = repetition;
             this.aspiration = aspiration;
             this.pvs = pvs;
+            this.ordering = ordering;
         }
 
         public String key() {
             return key;
         }
 
-        /** T15: parse a level name; "current" is an alias for T13.
-         *  Returns null for an unknown level (a usage error at the CLI). */
+        /** T15: parse a level name; "current" is an alias for T16 (the
+         *  post-T16 engine). Returns null for an unknown level (a usage
+         *  error at the CLI). */
         public static Level parse(String name) {
             if (name == null)
                 return null;
             if ("current".equals(name))
-                return T13;
+                return T16;
             for (Level level : values())
                 if (level.key.equals(name))
                     return level;
@@ -136,11 +143,12 @@ public class Bench {
     }
 
     /**
-     * T15: build a tree at the given engine level. The T14 ordering
-     * handoff rides with the TT (there are no entries to order from when
-     * the table is off, and on it is the fixed T14 behavior). All six
-     * feature flags are passed explicitly; for T13 this is bit-identical
-     * to the pre-T15 4-argument constructor (every flag defaults to on).
+     * T15 (extended by T16): build a tree at the given engine level. The
+     * T14 ordering handoff rides with the TT (there are no entries to order
+     * from when the table is off, and on it is the fixed T14 behavior). All
+     * seven feature flags are passed explicitly; for T16 this is
+     * bit-identical to the 4-argument constructor (every flag defaults to
+     * on).
      */
     public static GameTree treeFor(Level level, Player maxPlayer,
                                    Player minPlayer, long timeBudgetMillis,
@@ -148,7 +156,7 @@ public class Bench {
         return new GameTree(maxPlayer, minPlayer, timeBudgetMillis, seed,
                 level.transposition, level.aspiration, level.pvs,
                 level.transposition, level.quiescence,
-                level.threatTerms, level.repetition);
+                level.threatTerms, level.repetition, level.ordering);
     }
 
     public static void main(String[] args) {
