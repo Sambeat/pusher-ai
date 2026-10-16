@@ -55,7 +55,7 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 (if missing), compiles `src/` -> `out/`, and runs every test class:
 ```bash
 ./build.sh test
-# Expected: OK (114 tests). GameTreeTest takes ~5 s (real time-limited searches);
+# Expected: OK (121 tests). GameTreeTest takes ~5 s (real time-limited searches);
 # PusherApplicationTest drives full-budget searches (a few seconds).
 # (Count history: 42 at T1, +20 from T5's RulesContractTest, +2 from T7's
 # BenchTest, +3 from T3's QuiescenceTest, +14 from T4's ThreatEvalTest,
@@ -73,7 +73,11 @@ T1 has landed: from the repo root, one command downloads the pinned test jars
 # +6 from T13 Part A (AspirationPvsTest: exact-value, narrow-window,
 # retry, cutoff, disable-flag, production-path tests),
 # +5 from T13 Part B (PVS: exact-value at every depth, re-search fires,
-# node reduction, TT flag consistency, on/off determinism).)
+# node reduction, TT flag consistency, on/off determinism),
+# +7 from T14 (6 GameTreeTest: handoff score-invariance, handoff node
+# reduction, constructor wiring, max-static-score bound, PVS×TT dirty-table
+# fuzz, board-state discipline; 1 TranspositionTableTest: replacement
+# contract).)
 ```
 JDK 17+ required. `build.sh` auto-detects a JDK (macOS `java_home`, Homebrew,
 sdkman, `/usr/lib/jvm`) if none is on `PATH`. (See `README.md`.)
@@ -1350,6 +1354,222 @@ verdicted VERIFIED-FINE.
 **Risk.** Low — mostly measurement and documentation; fixes are isolated and
   test-gated. **Estimate.** 1 session.
 
+#### T14 Audit Findings
+
+Verdicts, in checklist order: **1 — BUG-FIXED; 2a/2b/2c, 3, 4, 8 —
+VERIFIED-FINE; 5, 6, 7 — NOTE.** One subsection per item, each with its
+evidence (a measured number or a test name), as the acceptance requires.
+
+**Setup for the measurements.** "Full board" = 32-piece start (8 Pushers +
+8 Pushees per side), 4950 ms budget, seed 42. The ID measurements
+(items 1, 2a) ran a single tree per variant, full window, TT + PVS on,
+`debugSearchScore(d, −∞, +∞)` at depths 1..9 (each call seeded from the
+same seed, so the two variants are apples-to-apples). Full-board games
+(items 2b, 5, 6) played the production path (`getBestMoveQuick`, aspiration
++ PVS on) to completion, 3 runs per variant.
+
+**Item 1 — TT best-move handoff at internal nodes: BUG-FIXED.**
+
+Measured on the full board (seed 42), per-level node counts, current gate
+(`entry.depth >= depth`) vs. relaxed gate (`bestMove != null`):
+
+| depth | current | relaxed | delta |
+|---|---|---|---|
+| 6 | 25,521 | 19,740 | −23% |
+| 7 | 207,612 | 206,175 | −1% |
+| 8 | 411,282 | 254,498 | −38% |
+| 9 | 3,616,537 | 1,909,140 | **−47%** |
+
+Scores identical at every depth (−30, −31, −30, −31, −30, −31, −29, −30,
+−29 — value invariance holds in the measurement itself). The `ttOrderHits`
+counter (internal nodes whose ordered first move came from a TT entry) shows
+the mechanism: at depth 9 the current gate hands a TT first move to 1,025
+internal nodes (cross-path same-depth entries only) vs. 90,183 under the
+relaxed gate (the previous level's best move — exactly the missing standard
+ID handoff, since at a node the previous level's entry is one depth
+shallower than the probe). The score-RETURN gate stayed strict in both.
+
+Implemented as the `ttMoveHandoff` flag (default ON; the 8-argument public
+constructor exposes it). The root keeps its strictly-shallower rule. Pinned:
+`ttMoveHandoffIsOrderingOnlyScoresUnchanged` (6 positions × depths 2–5, on
+vs. off, identical scores) and `ttMoveHandoffReducesNodesOnFullBoard`
+(depth-8 node count strictly smaller with the handoff). **T16's scope note:
+part (a) — TT handoff at internal nodes from any stored depth — is DONE**;
+T16 is (b) goal proximity plus the acceptance gate.
+
+Production effect: 2000 ms bench avgMsPerMove ~80 → **46.8 (−41%)** with
+winners/plies/depth unchanged (5/5, 13, 13 — the forced-win level's
+widening retries got cheaper). Full-board same-seed games: average completed
+depth per move 7.40–8.54 (pre-fix) → 8.21–8.51 (post-fix), and the early/
+mid-game profile shifts from mostly 8s to mostly 9s.
+
+Implementation note (caught live, pinned): adding the 8-argument public
+constructor next to the 9-argument private one made the existing
+8-argument `this(...)` delegations silently bind to the PUBLIC overload and
+shift every flag (aspiration off became on, TT on became off — two tests
+failed). All delegations now pass all nine arguments, and
+`constructorFlagsAreWiredToTheirDocuments` pins each public constructor's
+flags against observable behavior (TT probes / aspiration retries / PVS
+re-searches) so a future overload-shape change fails there instead of in a
+silent behavior flip.
+
+**Item 2 — TT soundness edges: VERIFIED-FINE (a, b, c).**
+
+- **(a) Deeper-returned-at-shallower (the TT horizon approximation):
+unreachable in this engine, measured identical.** The "same-depth-only"
+  probe variant (`entry.depth == depth` for score return) produced a
+  BYTE-IDENTICAL node/probe/hit profile at depths 1–9 on the full board.
+  The reason is structural, not luck: a node's probe depth is determined by
+  its ply (root depth − ply), so within a single search no stored entry can
+  be deeper than the probe (entries from earlier iterations are one ply
+  shallower; aspiration retries re-search the same depth); across searches
+  the turn-number guard rejects every entry (turn numbers are strictly
+  monotonic within a game, and a cycle back to the same arrangement changes
+  the turn). The `depth >=` gate is therefore behaviorally `==` today, and
+  the standard horizon-approximation error cannot occur. No change made
+  (the gate stays `>=`: it is the standard, and a future feature that does
+  store deeper-than-probed entries — e.g. a multi-search TT — gets the
+  sound behavior for free).
+- **(b) Direct-mapped collisions:** the turn guard's catch rate over nine
+  full-board games is ≤ 0.0041% of probes (47,327 / 1,159,802,080 worst
+  run; most runs ≤ 0.001%) — `turnGuardMisses()` / `probes()` (new bench
+  hooks). With a full 64-bit key the remaining error is bounded as designed
+  (a key match is the key; a mismatch on turn is a correct miss). Negligible
+  and harmless: VERIFIED-FINE.
+- **(c) Replacement:** the comparison is on STORED depth only
+  (`depths[i] > depth → keep`): a deeper entry is never evicted by a
+  shallower store, and an equal-depth store replaces (last write wins —
+  deterministic, no oscillation). Pinned by the pre-existing
+  `deeperEntryWins` plus the new
+  `replacementComparesOnStoredDepthAndNeverOscillates` (equal-depth replace,
+  deeper-takes-over, survival under repeated shallower stores).
+
+**Item 3 — ±9000 forced-win bound margin: VERIFIED-FINE (5808 headroom).**
+
+Worst case measured on a maximally loaded full-board position (every T4 term
+at once, White's view): all 8 White Pushees on row 6 each with a mirror
+Pusher behind (READY_TO_WIN × 8 = 3200 — the dominant term), every White
+piece maximally advanced (own base 150: 8 Pushers at 7+5, 6 non-edge Pushees
+at 3+6), Black's 16 pieces in the two rows of least advancement that fit
+(penalty 168: 8 Pushers at 7+3+2, 8 Pushees at 3+4+2), White mobility 20/2
+= 10, no capture threat, no shield (Black has no ready Pushee):
+**150 − 168 + 10 + 3200 = 3192**, leaving **9000 − 3192 = 5808 (~64%)** of
+headroom. A loose analytic bound (all terms at geometrically impossible
+simultaneous maxima) lands at ~3800 — still 57% under. The quiescence
+stand-pat path is this SAME `GameAnalyzer.analyze` call, so it cannot exceed
+the same bound; a q-node exceeds 9000 only through a capture line into a
+terminal win (~±2³¹), which is the forced-win signal the cutoff exists to
+catch. Pinned by `maxStaticScoreStaysBelowForcedWinBound` (the exact 3192
+and the < 9000 bound, both colors' views). No weight or constant change
+needed.
+
+**Item 4 — PVS × TT dirty-table reuse: VERIFIED-FINE (fuzz clean).**
+
+`pvsXttDirtyTableReuseIsSound`: 20 seeded random small positions (2 Pushers
++ 1 Pushee per side, random squares in rows 1–6, random side to move, seeds
+42–61). Each position: pass 1 = full-window depth-4 search with a fresh
+table; pass 2 = same position/depth, same table still dirty, PVS on; pass 3
+= the same dirty table probed by a PVS-off tree (the table is shared via the
+new `setTranspositionTable` test hook). All 20 × 3 root scores agree — no
+unsound probe path through the UPPER/LOWER entries the null-window searches
+store. The board state is asserted exact after every pass (see item 8).
+
+**Item 5 — Q_MAX_DEPTH = 8 quiescence cap: NOTE (never really binds; no
+change).**
+
+The cap's exit fired on **0.003%–0.067%** of q-nodes across the nine
+full-board games (e.g. 120,583 / 179,280,739; 4,255 / 138,085,704; counted
+by the new `getQBoundHits()` / `getQNodeCount()` hooks). Eight CONSECUTIVE
+capture plies are a vanishingly rare event in this game (average capture
+branching ~1–2, as T3 noted), so the bounded extension is costing nothing:
+raising the cap would buy ~0.05% of q-nodes a little more depth at a real
+ms-per-move risk. Accepted as-is.
+
+**Item 6 — wall-clock level start: NOTE (measured; the half-budget rule does
+NOT win; accepted behavior).**
+
+Three same-seed (42) full-board 4950 ms runs per variant, on the post-item-1
+engine (so the only difference is the level-start rule):
+
+| variant | winners | maxDepth | avgDepth (per move) |
+|---|---|---|---|
+| current (start any level within budget) | BLACK, WHITE, WHITE | 10, 10, 11 | 8.21, 8.25, 8.51 |
+| half-budget (start only if previous level < ½ remaining) | WHITE, WHITE, BLACK | 11, 10, 10 | 8.56, 8.11, 8.34 |
+
+Mean max depth: 10.33 = 10.33. Mean avgDepth: 8.32 vs 8.34 (within noise).
+The same-seed winner flip is UNCHANGED (one BLACK in three either way), and
+the per-run avgDepth spread is actually slightly larger with the rule
+(8.11–8.56 vs 8.21–8.51). The flip is not the interrupted level varying in
+isolation — it is the accumulated effect of the interrupted level on the
+move CHOSEN, which then diverges the game; starting levels more
+conservatively does not make the choice more deterministic, it only removes
+a level that sometimes would have completed. Per the checklist's gate
+("if it cuts variance without losing average depth, implement it; otherwise
+record as accepted behavior"): **recorded as accepted behavior, not
+implemented** — the timeout/revert path stays the sole backstop, and
+`getBestMoveQuick` is byte-identical to pre-audit. (The measurement hook was
+removed after the runs.)
+
+**Item 7 — repetition penalty × PVS corner: NOTE (no fix; the unsound value
+is never consumed).**
+
+The corner is real: at a max root in a narrow aspiration window, a penalized
+fail-high child returns `beta − REPETITION_PENALTY` (the child search itself
+returns the bound `beta`, then the root subtracts 5). The root then stores
+itself in the TT with flag EXACT at `beta − 5` — an underestimate of the
+true value (≥ beta) by at least 5. Why this is safe and needs no fix:
+
+1. **Never consumed as a value.** A root's stored score is never returned:
+   the score-return gate requires `!isRoot`. The same (hash, turn) cannot
+   reappear as an INTERNAL node — the turn number is strictly monotonic
+   within a search, and a cycle back to the same arrangement changes the
+   turn, which the guard rejects. The only consumer of the root entry is the
+   NEXT iterative-deepening level's ordering (the `depth <` rule at the root
+   — a best-MOVE, not a score).
+2. **Self-correcting within the move.** The returned (penalized) score
+   becomes `prevScore`; if the true root value exceeds the next level's
+   narrow window, the standard aspiration fail-high retry widens and recovers
+   it (or the |score| > 9000 forced-win path returns it without a retry).
+3. **Pre-existing and bounded.** The identical formula ran pre-PVS (the
+   penalty is applied to whatever the child search returns, bound or exact);
+   it is root-only by design (T10), and the magnitude is exactly
+   REPETITION_PENALTY = 5 — noise next to any real margin, and never a
+   forced win/loss (pinned by RepetitionTest). Recording it here so it is
+   not "fixed" later into something that changes the pinned shuffle-breaking
+   behavior.
+
+**Item 8 — board-state discipline: VERIFIED-FINE (no new dirty-board path).**
+
+Walkthrough: (a) the PVS re-search performs NO extra board ops — the
+null-window search undid all of its own descendants, the re-search applies
+and undoes its own, and the loop's single `undo(move)` runs once in both
+paths; (b) the aspiration retry reverts to the SAME pre-iteration memento
+snapshot each time (taken once, before the level loop). Pinned by
+`boardStateIsExactAfterResearchedAndRetriedSearches`: after a search that
+actually performed PVS re-searches (`getPvsResearched() > 0`), after one that
+performed aspiration retries (`getAspirationRetries() > 0`), and after a
+production `getBestMoveQuick()`, the board's Zobrist key, side to move, turn
+number and legal-move SET are exactly the pre-search state.
+
+Side note (pre-existing, verified NOT a T13 regression): the AGGREGATE
+legal-move list's order can change across move/undo pairs (same set, e.g.
+a piece's move re-appended after the search — reproduced on the pre-T13
+engine with TT/aspiration/PVS all off). The invariant (engine invariant 3)
+is the cached SET per piece, and the search shuffles the non-TT,
+non-capture moves regardless, so behavior is unaffected; the test therefore
+asserts set + size, not order.
+
+**Acceptance status.** Findings: this section (8 items, verdict + evidence
+each). BUG verdicts: item 1 ships with regression tests that fail before
+the fix (`ttMoveHandoffIsOrderingOnlyScoresUnchanged` with handoff off vs. on
+pins the value both ways; `ttMoveHandoffReducesNodesOnFullBoard` pins the
+speed; both run against the flag the fix introduced, and the pre-fix gate is
+the flag-off path). Full suite green ×2 at 121 tests. 2000 ms bench
+(`--games 10 --budget 2000 --seed 42`): `{whiteWins:5, blackWins:5,
+avgPlies:13.00, avgMaxDepth:13.00, avgMsPerMove:46.80}` — unchanged
+winners/plies/depth (5/5, 13, 13) vs. T13's ~80 ms/move; the delta is the
+intentional speed change from the item-1 fix (reported above).
+
 ---
 
 ### T15 — A/B strength harness (measuring engine strength)
@@ -1453,6 +1673,13 @@ changes.
    The ROOT keeps its current rule (strictly-shallower only: a same-depth or
    deeper root entry would make root ties sticky across moves — pinned
    behavior). The score-return gate (`usable()` + `depth >=`) is unchanged.
+   *(Status: T14 implemented (a) per its checklist — see the T14 findings,
+   item 1: the `ttMoveHandoff` flag, default ON, pinned by
+   `ttMoveHandoffIsOrderingOnlyScoresUnchanged` +
+   `ttMoveHandoffReducesNodesOnFullBoard`. T16 does not re-land (a); its
+   scope is (b) goal proximity plus the acceptance gate, and its
+   instrumented handoff count (acceptance 3) reuses the existing
+   `getTtOrderHits()` hook.)*
 2. **Goal-proximity ordering of quiet moves.** In `orderMoves`, replace
    `Collections.shuffle(rest, random)` with a bucket sort by a proximity key,
    then shuffle WITHIN each bucket (the non-determinism pinned by
