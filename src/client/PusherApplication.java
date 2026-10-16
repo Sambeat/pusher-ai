@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Random;
 
@@ -27,12 +28,13 @@ public class PusherApplication {
 
 	static final int ORIGIN_COLUMN = 0;
 	static final int ORIGIN_ROW = 1;
-	static final int DESTINATION_COLUM = 5;
+	static final int DESTINATION_COL = 5;
 	static final int DESTINATION_ROW = 6;
 
 	static GameBoard board = GameBoard.getInstance();
 	static Move move;
 	static GameTree gameTree;
+	private static final Random RANDOM = new Random();
 
 	/**
 	 * T10: plies applied to the local board in the current game. Public
@@ -103,65 +105,10 @@ public class PusherApplication {
 
 			try {
 				switch (cmd) {
-				case '1':
-					//A fresh game: clear whatever the previous game left on
-					//the board (leftover pieces, turn player, turn number,
-					//capture log) and any stale move from the old game.
-					board.reset();
-					move = null;
-					plies = 0;
-					createInitialBoard(input);
-					gameTree = new GameTree(Player.WHITE, Player.BLACK);
-					board.updateAllLegaLMoves();
-
-					move = gameTree.getBestMoveQuick();
-					communicateMove(output, move);
-					break;
-				case '2':
-					board.reset();
-					move = null;
-					plies = 0;
-					createInitialBoard(input);
-					gameTree = new GameTree(Player.BLACK, Player.WHITE);
-					board.updateAllLegaLMoves();
-					break;
-				case '3':
-					if (move != null) {
-						board.movePiece(move);
-						registerPly();
-					}
-					move = null;
-
-					byte[] aBuffer = new byte[16];
-
-					int size = input.available();
-					if (size > 0) {
-						input.read(aBuffer, 0, size);
-					}
-
-					String s = new String(aBuffer).trim();
-
-					Move opponentMove = parseMove(s);
-					if (opponentMove == null) {
-						//The board would be out of sync with the server from
-						//here on: report it and wait for the next command
-						//instead of corrupting the board state.
-						System.out.println("Could not parse opponent move: [" + s + "]");
-						break;
-					}
-
-					board.movePiece(opponentMove);
-					registerPly();
-
-					move = gameTree.getBestMoveQuick();
-					communicateMove(output, move);
-					board.updateAllLegaLMoves();
-					break;
-				case '4':
-					ArrayList<Move> legalMoves = board.getAllLegalMovesQuick();
-					move = legalMoves.isEmpty() ? null : getRandomMove(legalMoves);
-					communicateMove(output, move);
-					break;
+				case '1' -> beginGame(input, output, true, true);
+				case '2' -> beginGame(input, output, false, false);
+				case '3' -> applyOpponentPly(input, output);
+				case '4' -> playRandomMove(output);
 				}
 			} catch (Exception e) {
 				//One bad command must not kill the client: the original code
@@ -171,6 +118,87 @@ public class PusherApplication {
 				e.printStackTrace();
 			}
 		}
+	}
+
+	/**
+	 * Commands '1' (we play white) and '2' (we play black): start a fresh
+	 * game from the board payload the server just sent.
+	 *
+	 * @param aiPlaysWhite     true for '1' (we are the maximizing player),
+	 *                         false for '2'.
+	 * @param replyImmediately true for '1': answer with the best move right
+	 *                         away; '2' stays silent and waits for the
+	 *                         opponent's first move.
+	 * @throws IOException
+	 */
+	private static void beginGame(BufferedInputStream input, BufferedOutputStream output,
+			boolean aiPlaysWhite, boolean replyImmediately) throws IOException {
+		//A fresh game: clear whatever the previous game left on
+		//the board (leftover pieces, turn player, turn number,
+		//capture log) and any stale move from the old game.
+		board.reset();
+		move = null;
+		plies = 0;
+		createInitialBoard(input);
+		gameTree = aiPlaysWhite ? new GameTree(Player.WHITE, Player.BLACK)
+				: new GameTree(Player.BLACK, Player.WHITE);
+		board.updateAllLegaLMoves();
+		if (replyImmediately) {
+			move = gameTree.getBestMoveQuick();
+			communicateMove(output, move);
+		}
+	}
+
+	/**
+	 * Command '3': apply the move we chose, read and apply the opponent's
+	 * move (one available()-based read, the confirmed wire behavior),
+	 * answer with our next best move.
+	 *
+	 * @throws IOException
+	 */
+	private static void applyOpponentPly(BufferedInputStream input,
+			BufferedOutputStream output) throws IOException {
+		if (move != null) {
+			board.movePiece(move);
+			registerPly();
+		}
+		move = null;
+
+		byte[] aBuffer = new byte[16];
+
+		int size = input.available();
+		if (size > 0) {
+			input.read(aBuffer, 0, size);
+		}
+
+		String s = new String(aBuffer).trim();
+
+		Move opponentMove = parseMove(s);
+		if (opponentMove == null) {
+			//The board would be out of sync with the server from
+			//here on: report it and wait for the next command
+			//instead of corrupting the board state.
+			System.out.println("Could not parse opponent move: [" + s + "]");
+			return;
+		}
+
+		board.movePiece(opponentMove);
+		registerPly();
+
+		move = gameTree.getBestMoveQuick();
+		communicateMove(output, move);
+		board.updateAllLegaLMoves();
+	}
+
+	/**
+	 * Command '4': play a random legal move (or nothing if there is none).
+	 *
+	 * @throws IOException
+	 */
+	private static void playRandomMove(BufferedOutputStream output) throws IOException {
+		ArrayList<Move> legalMoves = board.getAllLegalMovesQuick();
+		move = legalMoves.isEmpty() ? null : getRandomMove(legalMoves);
+		communicateMove(output, move);
 	}
 
 	/**
@@ -207,7 +235,7 @@ public class PusherApplication {
 		//The initial 4-char format ("D2E3"), confirmed as the right one by the
 		//server owner (T11 follow-up: "the initial format was the right one").
 		String moveParameters = move.toString();
-		output.write(moveParameters.getBytes(), 0, moveParameters.length());
+		output.write(moveParameters.getBytes(StandardCharsets.US_ASCII));
 		output.flush();
 
 		System.out.println(move);
@@ -234,8 +262,8 @@ public class PusherApplication {
 		if (s.length() == 4 && isValidMoveQuad(s, 0, 1, 2, 3)) {
 			return buildMove(s, 0, 1, 2, 3);
 		}
-		if (s.length() >= 7 && isValidMoveQuad(s, ORIGIN_COLUMN, ORIGIN_ROW, DESTINATION_COLUM, DESTINATION_ROW)) {
-			return buildMove(s, ORIGIN_COLUMN, ORIGIN_ROW, DESTINATION_COLUM, DESTINATION_ROW);
+		if (s.length() >= 7 && isValidMoveQuad(s, ORIGIN_COLUMN, ORIGIN_ROW, DESTINATION_COL, DESTINATION_ROW)) {
+			return buildMove(s, ORIGIN_COLUMN, ORIGIN_ROW, DESTINATION_COL, DESTINATION_ROW);
 		}
 		return null;
 	}
@@ -323,39 +351,8 @@ public class PusherApplication {
 	 * @return The chosen move.
 	 */
 	static private Move getRandomMove(ArrayList<Move> legalMoves) {
-		Random random = new Random();
-		int r = random.nextInt(legalMoves.size());
+		int r = RANDOM.nextInt(legalMoves.size());
 
 		return legalMoves.get(r);
-	}
-
-	/**
-	 * Transform the column's letter into an int.
-	 * @param letter
-	 *
-	 * @return an int representing the column.
-	 */
-	static private int letterToInt(char letter) {
-		switch (letter) {
-		case 'A':
-			return 0;
-		case 'B':
-			return 1;
-		case 'C':
-			return 2;
-		case 'D':
-			return 3;
-		case 'E':
-			return 4;
-		case 'F':
-			return 5;
-		case 'G':
-			return 6;
-		case 'H':
-			return 7;
-
-		default:
-			return -1;
-		}
 	}
 }
