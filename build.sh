@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pusher-AI build & test. Requires JDK 17+.
+# Pusher-AI build & test. Requires JDK 21+.
 # Uses java/javac from PATH, or auto-detects a JDK (macOS /usr/libexec/java_home,
 # Homebrew, sdkman, /usr/lib/jvm) and sets JAVA_HOME if none is on PATH.
 #
@@ -55,7 +55,7 @@ resolve_jdk() {
     fi
   done
 
-  echo "ERROR: JDK 17+ required. Install a JDK, or set JAVA_HOME / put java on PATH." >&2
+  echo "ERROR: JDK 21+ required. Install a JDK, or set JAVA_HOME / put java on PATH." >&2
   exit 1
 }
 
@@ -78,7 +78,7 @@ compile() {
   sources="$(find src -name '*.java')"
   echo "Compiling $(printf '%s\n' "$sources" | wc -l | tr -d ' ') source files -> $OUT/ ..."
   # shellcheck disable=SC2086
-  javac -cp "$JUNIT_JAR:$HAMCREST_JAR" -d "$OUT" $sources
+  javac --release 21 -Xlint:all -cp "$JUNIT_JAR:$HAMCREST_JAR" -d "$OUT" $sources
 }
 
 run_tests() {

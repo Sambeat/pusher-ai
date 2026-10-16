@@ -13,7 +13,7 @@ and replies with its chosen move.
 
 ## Requirements
 
-- **JDK 17+** (`java` and `javac` on `PATH`).
+- **JDK 21+** (`java` and `javac` on `PATH`).
 - `curl` (only used to fetch the test dependencies on first run).
 
 ## Build & test
