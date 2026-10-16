@@ -179,15 +179,29 @@ public class GameTree {
     private final boolean threatTermsEnabled;
     private final boolean repetitionEnabled;
 
+    // T16: when true (the default — the post-T16 behavior), the quiet moves
+    // in orderMoves are bucketed by goal proximity (fewer rows from the
+    // destination row to this side's goal row first) and shuffled only
+    // WITHIN each bucket: equally-close quiet moves keep their
+    // shuffle-random order (pinned by testRandomnessForMoreThanOneMove),
+    // while a pusher one row from the goal row always precedes one two rows
+    // from. False restores exactly the pre-T16 behavior (every quiet move
+    // in one plain shuffle). The TT best-move-first slot and the MVV-LVA
+    // capture ordering are untouched by the flag in both directions (they
+    // predate it). Ordering only: it never affects returned values — the
+    // score-return gate in alphaBeta is independent of it.
+    private final boolean orderingEnabled;
+
     public GameTree(Player maxPlayer, Player minPlayer){
-        // NOTE: delegates to the 12-argument private constructor (verbose,
+        // NOTE: delegates to the 13-argument private constructor (verbose,
         // tt, aspiration, pvs, handoff, quiescence, threat terms,
-        // repetition). The delegation arity must match the PRIVATE
-        // constructor — an 8-argument this() call would silently bind to
-        // the public 8-argument overload and shift every flag (caught live
-        // during T14; pinned by constructorFlagsAreWiredToTheirDocuments).
+        // repetition, ordering). The delegation arity must match the
+        // PRIVATE constructor — an 8-argument this() call would silently
+        // bind to the public 8-argument overload and shift every flag
+        // (caught live during T14; pinned by
+        // constructorFlagsAreWiredToTheirDocuments).
         this(maxPlayer, minPlayer, MAX_TIME_MILLIS, null, true, true, true,
-                true, true, true, true, true);
+                true, true, true, true, true, true);
     }
 
     /**
@@ -203,7 +217,7 @@ public class GameTree {
      */
     public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis, Long seed){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false, true, true,
-                true, true, true, true, true);
+                true, true, true, true, true, true);
     }
 
     /**
@@ -214,7 +228,8 @@ public class GameTree {
     public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
                     Long seed, boolean transpositionEnabled){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
-                transpositionEnabled, true, true, true, true, true, true);
+                transpositionEnabled, true, true, true, true, true, true,
+                true);
     }
 
     /**
@@ -228,7 +243,7 @@ public class GameTree {
                     boolean aspirationEnabled){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
                 transpositionEnabled, aspirationEnabled, true, true,
-                true, true, true);
+                true, true, true, true);
     }
 
     /**
@@ -243,7 +258,7 @@ public class GameTree {
                     boolean aspirationEnabled, boolean pvsEnabled){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
                 transpositionEnabled, aspirationEnabled, pvsEnabled, true,
-                true, true, true);
+                true, true, true, true);
     }
 
     /**
@@ -259,7 +274,7 @@ public class GameTree {
                     boolean ttMoveHandoff){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
                 transpositionEnabled, aspirationEnabled, pvsEnabled,
-                ttMoveHandoff, true, true, true);
+                ttMoveHandoff, true, true, true, true);
     }
 
     /**
@@ -274,7 +289,7 @@ public class GameTree {
                     boolean ttMoveHandoff, boolean quiescenceEnabled){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
                 transpositionEnabled, aspirationEnabled, pvsEnabled,
-                ttMoveHandoff, quiescenceEnabled, true, true);
+                ttMoveHandoff, quiescenceEnabled, true, true, true);
     }
 
     /**
@@ -291,7 +306,8 @@ public class GameTree {
                     boolean threatTermsEnabled){
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
                 transpositionEnabled, aspirationEnabled, pvsEnabled,
-                ttMoveHandoff, quiescenceEnabled, threatTermsEnabled, true);
+                ttMoveHandoff, quiescenceEnabled, threatTermsEnabled, true,
+                true);
     }
 
     /**
@@ -308,14 +324,34 @@ public class GameTree {
         this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
                 transpositionEnabled, aspirationEnabled, pvsEnabled,
                 ttMoveHandoff, quiescenceEnabled, threatTermsEnabled,
-                repetitionEnabled);
+                repetitionEnabled, true);
+    }
+
+    /**
+     * T16: like the 11-argument constructor, with T16's goal-proximity
+     * ordering of quiet moves explicitly enabled or disabled (off is
+     * exactly the pre-T16 behavior: every quiet move in one plain
+     * shuffle). Default in all other constructors: enabled (the post-T16
+     * behavior).
+     */
+    public GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
+                    Long seed, boolean transpositionEnabled,
+                    boolean aspirationEnabled, boolean pvsEnabled,
+                    boolean ttMoveHandoff, boolean quiescenceEnabled,
+                    boolean threatTermsEnabled, boolean repetitionEnabled,
+                    boolean orderingEnabled){
+        this(maxPlayer, minPlayer, timeBudgetMillis, seed, false,
+                transpositionEnabled, aspirationEnabled, pvsEnabled,
+                ttMoveHandoff, quiescenceEnabled, threatTermsEnabled,
+                repetitionEnabled, orderingEnabled);
     }
 
     private GameTree(Player maxPlayer, Player minPlayer, long timeBudgetMillis,
                      Long randomSeed, boolean verbose, boolean transpositionEnabled,
                      boolean aspirationEnabled, boolean pvsEnabled,
                      boolean ttMoveHandoff, boolean quiescenceEnabled,
-                     boolean threatTermsEnabled, boolean repetitionEnabled){
+                     boolean threatTermsEnabled, boolean repetitionEnabled,
+                     boolean orderingEnabled){
         this.maxPlayer = maxPlayer;
         this.minPlayer = minPlayer;
         this.timeBudgetMillis = timeBudgetMillis;
@@ -328,6 +364,7 @@ public class GameTree {
         this.quiescenceEnabled = quiescenceEnabled;
         this.threatTermsEnabled = threatTermsEnabled;
         this.repetitionEnabled = repetitionEnabled;
+        this.orderingEnabled = orderingEnabled;
 
         switch (maxPlayer){
             case WHITE:
@@ -992,10 +1029,16 @@ public class GameTree {
     }
 
     /**
-     * T6: in-place move ordering: the TT's best move first (if it is still
-     * in the list), then captures in MVV-LVA order (most valuable victim
-     * over least valuable attacker, descending), then the remaining moves
-     * in the existing shuffled order. The shuffle is preserved —
+     * T6 (extended by T16): in-place move ordering: the TT's best move
+     * first (if it is still in the list), then captures in MVV-LVA order
+     * (most valuable victim over least valuable attacker, descending),
+     * then the remaining quiet moves. With orderingEnabled (T16, the
+     * default) the quiet moves are bucketed by goal proximity — fewer rows
+     * from the destination row to this side's goal row first — and shuffled
+     * only WITHIN each bucket, so equally-close quiet moves keep their
+     * pinned shuffle-random order (testRandomnessForMoreThanOneMove). With
+     * it disabled (exactly the pre-T16 behavior) the quiet moves are one
+     * plain shuffle. The shuffle is preserved either way —
      * non-deterministic tie-breaking is pinned behavior.
      */
     private void orderMoves(ArrayList<Move> moves, Move ttBestMove, Player player){
@@ -1025,13 +1068,47 @@ public class GameTree {
             return Integer.compare(victimB * ownA, victimA * ownB);
         });
 
-        Collections.shuffle(rest, random);
+        if (orderingEnabled){
+            // T16: bucket the quiet moves by goal proximity (ascending —
+            // a pusher one row from the goal row before one two rows from),
+            // then shuffle WITHIN each bucket: equidistant quiet moves still
+            // shuffle, so the pinned randomness survives. Pushers and Pushees
+            // are keyed alike (a Pushee's advance matters equally; its
+            // legality already requires a friendly Pusher behind it);
+            // captures keep their MVV-LVA priority above this.
+            TreeMap<Integer, ArrayList<Move>> buckets = new TreeMap<>();
+            for (Move move : rest)
+                buckets.computeIfAbsent(proximityKey(move, player),
+                        k -> new ArrayList<>()).add(move);
+            ArrayList<Move> byProximity = new ArrayList<>(rest.size());
+            for (ArrayList<Move> bucket : buckets.values()){
+                Collections.shuffle(bucket, random);
+                byProximity.addAll(bucket);
+            }
+            rest = byProximity;
+        }
+        else
+            Collections.shuffle(rest, random);
 
         moves.clear();
         if (first != null)
             moves.add(first);
         moves.addAll(captures);
         moves.addAll(rest);
+    }
+
+    /**
+     * T16: the goal-proximity key of a move by the side to move — the
+     * number of rows from its DESTINATION row to this side's goal row,
+     * direction-aware (WHITE's goal row is 7, BLACK's is 0). Smaller keys
+     * are closer to the goal and are ordered first; a quiet move onto the
+     * goal row (an immediate win) has key 0. Pushers and Pushees are keyed
+     * alike.
+     */
+    private int proximityKey(Move move, Player player){
+        int goalRow = (player == Player.WHITE)
+                ? GameBoard.WHITE_GOAL_ROW : GameBoard.BLACK_GOAL_ROW;
+        return (goalRow - move.getDestination().getRow()) * player.direction();
     }
 
     /**
