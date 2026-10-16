@@ -536,7 +536,25 @@ public class GameTree {
             repetitionHistory.removeFirst();
     }
 
+    /**
+     * C2: the search core's (score, best-move) result. Replaces the raw
+     * Object[] tuples that used to be downcast with (Integer) x[0] /
+     * (Move) x[1] at every call site. Private because it never leaves
+     * this class.
+     */
+    private record ScoreAndMove(int score, Move bestMove) {}
 
+    /**
+     * C2: the search's timeout signal. Replaces the bare
+     * new Exception("Exceeded time"): thrown only by the time check in
+     * alphaBeta, and caught only where the bare Exception used to be
+     * caught (same spots, same recovery). Any other exception (an NPE in
+     * search, say) now propagates instead of being silently treated as a
+     * timeout.
+     */
+    private static final class SearchTimeoutException extends Exception {
+        private static final long serialVersionUID = 1L;
+    }
 
     /**
      * Uses iterative deepening to dynamically look ahead as much as possible
@@ -559,32 +577,32 @@ public class GameTree {
         lastCompletedLevel = 0;
         GameStep snapshot = board.createMemento();
 
-        Object[] moveInfo = null;
+        ScoreAndMove moveInfo = null;
         int prevScore = 0;
 
         do {
             try {
                 moveInfo = searchLevelWithAspiration(level, prevScore, snapshot);
                 lastCompletedLevel = level;
-            } catch (Exception e){
+            } catch (SearchTimeoutException e){
                 //When minmax can't complete in time, it will leave the board
                 //in a messed up state. We do a revert to its initial state then.
                 board.revertToState(snapshot);
                 break;
             }
 
-            if ( (int)moveInfo[0] > 9000 || (int) moveInfo[0] < -9000)
+            if (moveInfo.score() > 9000 || moveInfo.score() < -9000)
                 break;
 
             if (verbose)
-                System.out.println(moveInfo[1] + ":" + moveInfo[0]);
+                System.out.println(moveInfo.bestMove() + ":" + moveInfo.score());
 
-            prevScore = (int) moveInfo[0];
+            prevScore = moveInfo.score();
             level++;
         }
         while (System.currentTimeMillis() - start <= timeBudgetMillis);
 
-        return moveInfo == null ? null : (Move)moveInfo[1];
+        return moveInfo == null ? null : moveInfo.bestMove();
     }
 
     /**
@@ -598,8 +616,8 @@ public class GameTree {
      * breaks the deepening on it. Throws on timeout (the caller reverts the
      * board).
      */
-    private Object[] searchLevelWithAspiration(int level, int prevScore,
-                                               GameStep snapshot) throws Exception {
+    private ScoreAndMove searchLevelWithAspiration(int level, int prevScore,
+                                               GameStep snapshot) throws SearchTimeoutException {
         // Level 1 has no prior score, so it is full-width; later levels narrow
         // to prevScore +/- ASPIRATION_MARGIN. When aspiration is disabled every
         // level is full-width, which is exactly the pre-T13 behavior.
@@ -614,8 +632,8 @@ public class GameTree {
         int margin = ASPIRATION_MARGIN;
 
         do {
-            Object[] result = alphaBeta(level, maxPlayer, alpha, beta);
-            int score = (int) result[0];
+            ScoreAndMove result = alphaBeta(level, maxPlayer, alpha, beta);
+            int score = result.score();
 
             // Forced-win/loss cutoff: the forced line is found regardless of
             // the window width, so no retry (the fail is NOT an aspiration
@@ -661,21 +679,21 @@ public class GameTree {
         random = nextRandom();
         resetSearchCounters();
         GameStep snapshot = board.createMemento();
-        Object[] moveInfo = null;
+        ScoreAndMove moveInfo = null;
         int prevScore = 0;
         for (int level = 1; level <= maxDepth; level++){
             try {
                 moveInfo = searchLevelWithAspiration(level, prevScore, snapshot);
-            } catch (Exception e){
+            } catch (SearchTimeoutException e){
                 board.revertToState(snapshot);
                 break;
             }
-            int score = (int) moveInfo[0];
+            int score = moveInfo.score();
             if (score > 9000 || score < -9000)
                 return score;
             prevScore = score;
         }
-        return moveInfo == null ? Integer.MIN_VALUE : (int) moveInfo[0];
+        return moveInfo == null ? Integer.MIN_VALUE : moveInfo.score();
     }
 
     /**
@@ -708,10 +726,10 @@ public class GameTree {
             addRepetitionPosition(arrangementHash(board.getZobristHash(),
                     board.getCurrentPlayer()));
         try {
-            Object[] result = alphaBeta(depth, maxPlayer, Integer.MIN_VALUE, Integer.MAX_VALUE);
+            ScoreAndMove result = alphaBeta(depth, maxPlayer, Integer.MIN_VALUE, Integer.MAX_VALUE);
             lastCompletedLevel = depth;
-            return (Move) result[1];
-        } catch (Exception e){
+            return result.bestMove();
+        } catch (SearchTimeoutException e){
             return null;
         }
     }
@@ -732,8 +750,8 @@ public class GameTree {
         random = nextRandom();
         resetSearchCounters();
         try {
-            return (Integer) alphaBeta(depth, maxPlayer, alpha, beta)[0];
-        } catch (Exception e){
+            return alphaBeta(depth, maxPlayer, alpha, beta).score();
+        } catch (SearchTimeoutException e){
             return Integer.MIN_VALUE;
         }
     }
@@ -753,32 +771,30 @@ public class GameTree {
      * Moves are explored in random order (a fresh sequence per search) so ties
      * are not always resolved in favor of the first piece of the board setup.
      *
-     * Returns an Object[] with the first element being the score and the second
-     * element being the best Move.
+     * Returns a ScoreAndMove with the score and the best Move.
      * @param depth How many moves to look forward.
      * @param player The Player who would be playing the move.
      * @param alpha The maximum score found yet at that depth level.
      * @param beta The minimum score found yet at that depth level.
-     * @return An Object[] with the first element being the score and the second
-     * element being the best Move.
+     * @return A ScoreAndMove with the score and the best Move.
      */
     /** Root entry point of the search (T6: see the isRoot handling in the
      *  6-argument overload for the root's transposition-table semantics). */
-    private Object[] alphaBeta(int depth, Player player, int alpha, int beta) throws Exception {
+    private ScoreAndMove alphaBeta(int depth, Player player, int alpha, int beta) throws SearchTimeoutException {
         return alphaBeta(depth, player, alpha, beta, 0, true);
     }
 
     /** Internal-node entry point (recursions, including quiescence's). */
-    private Object[] alphaBeta(int depth, Player player, int alpha, int beta,
-                               int qDepth) throws Exception {
+    private ScoreAndMove alphaBeta(int depth, Player player, int alpha, int beta,
+                               int qDepth) throws SearchTimeoutException {
         return alphaBeta(depth, player, alpha, beta, qDepth, false);
     }
 
-    private Object[] alphaBeta(int depth, Player player, int alpha, int beta,
-                               int qDepth, boolean isRoot) throws Exception {
+    private ScoreAndMove alphaBeta(int depth, Player player, int alpha, int beta,
+                               int qDepth, boolean isRoot) throws SearchTimeoutException {
         nodeCount++;
         if (System.currentTimeMillis() - start > timeBudgetMillis){
-            throw new Exception("Exceeded time");
+            throw new SearchTimeoutException();
         }
 
         long positionHash = board.getZobristHash();
@@ -804,7 +820,7 @@ public class GameTree {
                 && ttEntry != null
                 && ttEntry.depth >= depth
                 && TranspositionTable.usable(ttEntry, alpha, beta))
-            return new Object[]{ttEntry.score, ttEntry.bestMove};
+            return new ScoreAndMove(ttEntry.score, ttEntry.bestMove);
 
         Player winner = board.winner();
 
@@ -817,7 +833,7 @@ public class GameTree {
             if (tt != null && depth > 0)
                 tt.store(positionHash, turn, depth, score,
                         TranspositionTable.Flag.EXACT, null);
-            return new Object[]{score, null};
+            return new ScoreAndMove(score, null);
         }
 
         ArrayList<Move> legalMoves = new ArrayList<>(board.getAllLegalMovesQuick());
@@ -835,7 +851,7 @@ public class GameTree {
             if (tt != null && depth > 0)
                 tt.store(positionHash, turn, depth, score,
                         TranspositionTable.Flag.EXACT, null);
-            return new Object[]{score, null};
+            return new ScoreAndMove(score, null);
         }
 
         if (depth == 0){
@@ -847,8 +863,7 @@ public class GameTree {
             // threatTermsEnabled: t2 evaluates pre-T4, t3/t4/t6 evaluate
             // with the terms on).
             if (!quiescenceEnabled)
-                return new Object[]{strategy.analyze(threatTermsEnabled),
-                        null};
+                return new ScoreAndMove(strategy.analyze(threatTermsEnabled), null);
             return quiescence(player, legalMoves, alpha, beta, qDepth);
         }
 
@@ -928,28 +943,28 @@ public class GameTree {
             //Update score with alpha/beta pruning
             if (player == maxPlayer) {
                 if (pvsEnabled && moveNumber > 0){
-                    score = (Integer) alphaBeta(depth - 1, minPlayer,
-                            alpha, alpha + 1, 0)[0];
+                    score = alphaBeta(depth - 1, minPlayer,
+                            alpha, alpha + 1, 0).score();
                     if (score > alpha){
                         pvsResearched++;
-                        score = (Integer) alphaBeta(depth - 1, minPlayer,
-                                alpha, beta, 0)[0];
+                        score = alphaBeta(depth - 1, minPlayer,
+                                alpha, beta, 0).score();
                     }
                 } else {
-                    score = (Integer) alphaBeta(depth - 1, minPlayer, alpha, beta, 0)[0];
+                    score = alphaBeta(depth - 1, minPlayer, alpha, beta, 0).score();
                 }
 
             } else {
                 if (pvsEnabled && moveNumber > 0){
-                    score = (Integer) alphaBeta(depth - 1, maxPlayer,
-                            beta - 1, beta, 0)[0];
+                    score = alphaBeta(depth - 1, maxPlayer,
+                            beta - 1, beta, 0).score();
                     if (score < beta){
                         pvsResearched++;
-                        score = (Integer) alphaBeta(depth - 1, maxPlayer,
-                                alpha, beta, 0)[0];
+                        score = alphaBeta(depth - 1, maxPlayer,
+                                alpha, beta, 0).score();
                     }
                 } else {
-                    score = (Integer) alphaBeta(depth - 1, maxPlayer, alpha, beta, 0)[0];
+                    score = alphaBeta(depth - 1, maxPlayer, alpha, beta, 0).score();
                 }
             }
             moveNumber++;
@@ -1025,7 +1040,7 @@ public class GameTree {
             tt.store(positionHash, turn, depth, nodeScore, flag, bestMove);
         }
 
-        return new Object[]{nodeScore, bestMove};
+        return new ScoreAndMove(nodeScore, bestMove);
     }
 
     /**
@@ -1130,11 +1145,11 @@ public class GameTree {
      * revert in getBestMoveQuick() still restores the board exactly (the
      * move/undo pairs add no state of their own).
      *
-     * Returns an Object[] with the first element being the score and the
-     * second element being null (q-nodes never choose a root move).
+     * Returns a ScoreAndMove with the score and a null best move (q-nodes
+     * never choose a root move).
      */
-    private Object[] quiescence(Player player, ArrayList<Move> legalMoves,
-                                int alpha, int beta, int qDepth) throws Exception {
+    private ScoreAndMove quiescence(Player player, ArrayList<Move> legalMoves,
+                                int alpha, int beta, int qDepth) throws SearchTimeoutException {
         // T14 item 5 (measurement): count q-nodes and how many of them hit
         // the capture-ply cap (qDepth >= Q_MAX_DEPTH returns stand-pat
         // without searching captures).
@@ -1150,7 +1165,7 @@ public class GameTree {
         if (player == maxPlayer) {
 
             if (standPat >= beta || qDepth >= Q_MAX_DEPTH)
-                return new Object[]{standPat, null};
+                return new ScoreAndMove(standPat, null);
 
             int best = standPat;
             if (standPat > alpha)
@@ -1161,7 +1176,7 @@ public class GameTree {
                     continue;
 
                 board.movePiece(move);
-                int score = (Integer) alphaBeta(0, minPlayer, alpha, beta, qDepth + 1)[0];
+                int score = alphaBeta(0, minPlayer, alpha, beta, qDepth + 1).score();
                 board.undo(move);
 
                 if (score > best)
@@ -1171,12 +1186,12 @@ public class GameTree {
                     break;
             }
 
-            return new Object[]{best, null};
+            return new ScoreAndMove(best, null);
 
         } else {
 
             if (standPat <= alpha || qDepth >= Q_MAX_DEPTH)
-                return new Object[]{standPat, null};
+                return new ScoreAndMove(standPat, null);
 
             int best = standPat;
             if (standPat < beta)
@@ -1187,7 +1202,7 @@ public class GameTree {
                     continue;
 
                 board.movePiece(move);
-                int score = (Integer) alphaBeta(0, maxPlayer, alpha, beta, qDepth + 1)[0];
+                int score = alphaBeta(0, maxPlayer, alpha, beta, qDepth + 1).score();
                 board.undo(move);
 
                 if (score < best)
@@ -1197,7 +1212,7 @@ public class GameTree {
                     break;
             }
 
-            return new Object[]{best, null};
+            return new ScoreAndMove(best, null);
 
         }
     }
