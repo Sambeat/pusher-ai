@@ -1,8 +1,7 @@
 package tests;
 
-import client.BlackStrategy;
 import client.GameAnalyzer;
-import client.WhiteStrategy;
+import client.PlayerStrategy;
 import game.GameBoard;
 import game.Piece;
 import game.Player;
@@ -56,8 +55,8 @@ public class EvalSymmetryTest {
     private static final int PUSHER = 1;
 
     private final GameBoard board = GameBoard.getInstance();
-    private final WhiteStrategy white = new WhiteStrategy();
-    private final BlackStrategy black = new BlackStrategy();
+    private final PlayerStrategy white = new PlayerStrategy(Player.WHITE);
+    private final PlayerStrategy black = new PlayerStrategy(Player.BLACK);
 
     @After
     public void cleanBoard(){

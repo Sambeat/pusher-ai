@@ -114,7 +114,7 @@ public class BugProofTest {
         board.updateAllLegaLMoves();
 
         // value 7 + advancement (row 3) + mobility (2 moves / 2) = 11
-        assertEquals(11, new WhiteStrategy().analyze());
+        assertEquals(11, new PlayerStrategy(Player.WHITE).analyze());
     }
 
     /**
@@ -127,7 +127,7 @@ public class BugProofTest {
         board.putPiece(new Pushee(Player.WHITE), 3, 0); // row 3, file A, no pusher behind
         board.updateAllLegaLMoves();
 
-        assertEquals(0, new WhiteStrategy().analyze());
+        assertEquals(0, new PlayerStrategy(Player.WHITE).analyze());
     }
 
     /**
@@ -143,7 +143,7 @@ public class BugProofTest {
         // value 7 + advancement (7 - 3 = 4 rows covered toward the goal)
         // + mobility (2 moves / 2) = 12 (the mobility term is part of the
         // unified T8 evaluation; enemy pieces are absent, so no premium)
-        assertEquals(12, new BlackStrategy().analyze());
+        assertEquals(12, new PlayerStrategy(Player.BLACK).analyze());
     }
 
     // ---------------------------------------------------------------------------------
@@ -169,7 +169,7 @@ public class BugProofTest {
         setUpBlackToMove();
         board.putPiece(new Pusher(Player.BLACK), row, col);
         board.updateAllLegaLMoves();
-        return new BlackStrategy().analyze();
+        return new PlayerStrategy(Player.BLACK).analyze();
     }
 
     // ---------------------------------------------------------------------------------
@@ -197,7 +197,7 @@ public class BugProofTest {
         board.putPiece(new Pusher(Player.BLACK), 6, 4);
         board.updateAllLegaLMoves();
 
-        assertEquals(-18, new WhiteStrategy().analyze());
+        assertEquals(-18, new PlayerStrategy(Player.WHITE).analyze());
     }
 
     // ---------------------------------------------------------------------------------

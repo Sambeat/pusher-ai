@@ -4,7 +4,7 @@ import client.Bench;
 import client.Bench.Level;
 import client.GameAnalyzer;
 import client.GameTree;
-import client.WhiteStrategy;
+import client.PlayerStrategy;
 import game.GameBoard;
 import game.Move;
 import game.Player;
@@ -185,7 +185,7 @@ public class EngineLevelTest {
         assertEquals("terms on keeps the pinned value", 4,
                 GameAnalyzer.analyzeFor(board, Player.WHITE));
         assertEquals("the strategies must honor the flag", base1,
-                new WhiteStrategy().analyze(false));
+                new PlayerStrategy(Player.WHITE).analyze(false));
         // t2 evaluates exactly this: no quiescence, no threat terms ->
         // the depth-0 root returns the stand-pat directly.
         assertEquals("t2's depth-0 evaluation must be the pre-T4 stand-pat",

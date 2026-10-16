@@ -366,11 +366,7 @@ public class GameTree {
         this.repetitionEnabled = repetitionEnabled;
         this.orderingEnabled = orderingEnabled;
 
-        //Exhaustive on the Player enum: no default needed.
-        strategy = switch (maxPlayer){
-            case WHITE -> new WhiteStrategy();
-            case BLACK -> new BlackStrategy();
-        };
+        strategy = new PlayerStrategy(maxPlayer);
 
     }
 

@@ -3,7 +3,7 @@ package tests;
 import static game.Columns.*;
 
 import client.GameAnalyzer;
-import client.WhiteStrategy;
+import client.PlayerStrategy;
 import game.GameBoard;
 
 import game.Player;
@@ -22,6 +22,6 @@ public class GameAnalyzerTest {
         board.putPiece(new Pusher(Player.WHITE), 3, C.pos());
         board.putPiece(new Pusher(Player.BLACK), 4, D.pos());
 
-        System.out.println(GameAnalyzer.analyze(board, new WhiteStrategy()));
+        System.out.println(GameAnalyzer.analyze(board, new PlayerStrategy(Player.WHITE)));
     }
 }

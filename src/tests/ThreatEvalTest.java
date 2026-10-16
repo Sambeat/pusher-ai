@@ -1,9 +1,8 @@
 package tests;
 
-import client.BlackStrategy;
 import client.GameAnalyzer;
 import client.GameTree;
-import client.WhiteStrategy;
+import client.PlayerStrategy;
 import game.GameBoard;
 import game.Move;
 import game.Player;
@@ -44,8 +43,8 @@ import static org.junit.Assert.*;
 public class ThreatEvalTest {
 
     private final GameBoard board = GameBoard.getInstance();
-    private final WhiteStrategy white = new WhiteStrategy();
-    private final BlackStrategy black = new BlackStrategy();
+    private final PlayerStrategy white = new PlayerStrategy(Player.WHITE);
+    private final PlayerStrategy black = new PlayerStrategy(Player.BLACK);
     private final GameTree whiteTree = new GameTree(Player.WHITE, Player.BLACK);
 
     @After
