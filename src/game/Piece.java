@@ -1,6 +1,7 @@
 package game;
 
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Piece is an abstract representation of the pieces that are on the GameBoard.
@@ -148,7 +149,7 @@ public sealed abstract class Piece implements Cloneable permits Pusher, Pushee {
      * every move to ensure this methods will return actual legal moves.
      * @return The legally playable moves for this Piece.
      */
-    public ArrayList<Move> getLegalMovesQuick(){
+    public List<Move> getLegalMovesQuick(){
         return legalMoves;
     }
 

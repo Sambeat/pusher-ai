@@ -7,8 +7,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Random;
+import java.util.List;
+import java.util.random.RandomGenerator;
 
 import game.GameBoard;
 import game.Move;
@@ -34,7 +34,7 @@ public class PusherApplication {
 	static GameBoard board = GameBoard.getInstance();
 	static Move move;
 	static GameTree gameTree;
-	private static final Random RANDOM = new Random();
+	private static final RandomGenerator RANDOM = RandomGenerator.getDefault();
 
 	/**
 	 * T10: plies applied to the local board in the current game. Public
@@ -196,7 +196,7 @@ public class PusherApplication {
 	 * @throws IOException
 	 */
 	private static void playRandomMove(BufferedOutputStream output) throws IOException {
-		ArrayList<Move> legalMoves = board.getAllLegalMovesQuick();
+		List<Move> legalMoves = board.getAllLegalMovesQuick();
 		move = legalMoves.isEmpty() ? null : getRandomMove(legalMoves);
 		communicateMove(output, move);
 	}
@@ -347,10 +347,10 @@ public class PusherApplication {
 
 	/**
 	 * Chose a move randomly based on all legal moves.
-	 * @param legalMoves Array of all legal moves.
+	 * @param legalMoves List of all legal moves.
 	 * @return The chosen move.
 	 */
-	static private Move getRandomMove(ArrayList<Move> legalMoves) {
+	static private Move getRandomMove(List<Move> legalMoves) {
 		int r = RANDOM.nextInt(legalMoves.size());
 
 		return legalMoves.get(r);

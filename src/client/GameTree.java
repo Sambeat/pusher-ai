@@ -6,6 +6,7 @@ import game.Piece;
 import game.Player;
 
 import java.util.*;
+import java.util.random.RandomGenerator;
 
 /**
  * Represents the game tree created by the minmax algorithm during play for
@@ -97,8 +98,10 @@ public class GameTree {
     // Used to randomize the move order on each search (tie-breaking and
     // move ordering). A fresh sequence is created for every getBestMoveQuick()
     // call so repeated searches on the same position are not deterministic
-    // (unless a seed was given, see the constructor below).
-    private Random random;
+    // (unless a seed was given, see the constructor below). Unseeded searches
+    // use RandomGenerator.getDefault(); seeded ones stay on java.util.Random
+    // for reproducibility (Bench goldens).
+    private RandomGenerator random;
 
     /**
      * T6: the transposition table, or null when the constructor disabled
@@ -243,13 +246,15 @@ public class GameTree {
     }
 
     /**
-     * Fresh Random for a new search: unseeded in legacy mode, otherwise
-     * derived from the seed and the search count. The golden-ratio constant
-     * mixes consecutive counters so successive searches decorrelate.
+     * Fresh random sequence for a new search: RandomGenerator.getDefault()
+     * in legacy (unseeded) mode, otherwise a java.util.Random derived from
+     * the seed and the search count (kept on Random for reproducibility —
+     * Bench goldens). The golden-ratio constant mixes consecutive counters
+     * so successive searches decorrelate.
      */
-    private Random nextRandom(){
+    private RandomGenerator nextRandom(){
         if (randomSeed == null)
-            return new Random();
+            return RandomGenerator.getDefault();
         return new Random(randomSeed + 0x9E3779B97F4A7C15L * searchCount++);
     }
 
@@ -918,7 +923,7 @@ public class GameTree {
      * plain shuffle. The shuffle is preserved either way —
      * non-deterministic tie-breaking is pinned behavior.
      */
-    private void orderMoves(ArrayList<Move> moves, Move ttBestMove, Player player){
+    private void orderMoves(List<Move> moves, Move ttBestMove, Player player){
         if (moves.size() <= 1)
             return;
 
@@ -959,19 +964,35 @@ public class GameTree {
                         k -> new ArrayList<>()).add(move);
             ArrayList<Move> byProximity = new ArrayList<>(rest.size());
             for (ArrayList<Move> bucket : buckets.values()){
-                Collections.shuffle(bucket, random);
+                shuffle(bucket, random);
                 byProximity.addAll(bucket);
             }
             rest = byProximity;
         }
         else
-            Collections.shuffle(rest, random);
+            shuffle(rest, random);
 
         moves.clear();
         if (first != null)
             moves.add(first);
         moves.addAll(captures);
         moves.addAll(rest);
+    }
+
+    /**
+     * Fisher-Yates shuffle, call-for-call identical to
+     * Collections.shuffle(list, rnd) (same nextInt(i + 1) sequence), kept
+     * local because Collections.shuffle accepts only java.util.Random while
+     * the unseeded search path uses RandomGenerator.getDefault(). Seeded
+     * behavior is therefore bit-identical to the pre-C9 code (Bench goldens).
+     */
+    private static <T> void shuffle(List<T> list, RandomGenerator rnd){
+        for (int i = 1; i < list.size(); i++){
+            int j = rnd.nextInt(i + 1);
+            T tmp = list.get(i);
+            list.set(i, list.get(j));
+            list.set(j, tmp);
+        }
     }
 
     /**

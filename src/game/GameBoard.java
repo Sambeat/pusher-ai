@@ -5,7 +5,7 @@ import client.TranspositionTable;
 
 import java.util.ArrayList;
 import java.util.LinkedList;
-import java.util.Random;
+import java.util.List;
 
 /**
  * GameBoard is a 1D implementation of a 2D LENGTH*LENGTH board. It is a
@@ -174,7 +174,7 @@ public class GameBoard {
         return pieceList.size();
     }
 
-    public ArrayList<Piece> getPieceList(){
+    public List<Piece> getPieceList(){
         return pieceList;
     }
 
@@ -191,8 +191,8 @@ public class GameBoard {
     /**
      * Return all precomputed legal moves.
      */
-    public ArrayList<Move> getAllLegalMovesQuick(){
-        ArrayList<Move> legalMovesList = new ArrayList<>(30);
+    public List<Move> getAllLegalMovesQuick(){
+        List<Move> legalMovesList = new ArrayList<>(30);
 
         for (Piece piece : pieceList){
 

@@ -13,6 +13,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Characterization tests for the rules contract documented in docs/RULES.md.
@@ -59,7 +60,7 @@ public class RulesContractTest {
         return new Move(board.getSquare(fromRow, fromCol), board.getSquare(toRow, toCol));
     }
 
-    private ArrayList<Move> legalMoves() {
+    private List<Move> legalMoves() {
         return board.getAllLegalMovesQuick();
     }
 

@@ -9,8 +9,8 @@ import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * T2: a minimal in-process Pusher server, backed by a real ServerSocket and a
@@ -41,7 +41,7 @@ public class MockPusherServer implements AutoCloseable {
     private final Thread acceptThread;
 
     private final List<String> responses =
-            Collections.synchronizedList(new ArrayList<String>());
+            new CopyOnWriteArrayList<String>();
     private final Object responseLock = new Object();
     private final Object sendLock = new Object();
 
