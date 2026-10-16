@@ -143,7 +143,7 @@ public class MoveOrderingTest {
 
             Move chosenMove = tree.getBestMoveQuick();
 
-            if (chosenMove.getPieceLocation() == board.getSquare(0, 1))
+            if (chosenMove.pieceLocation() == board.getSquare(0, 1))
                 timesPiece1Moved++;
             else
                 timesPiece2Moved++;

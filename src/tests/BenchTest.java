@@ -36,19 +36,19 @@ public class BenchTest {
         long elapsed = System.currentTimeMillis() - before;
 
         assertNotNull("bench must run and return a summary", summary);
-        assertEquals(1, summary.games.size());
+        assertEquals(1, summary.games().size());
 
-        Bench.GameResult game = summary.games.get(0);
-        assertTrue("game must have produced moves (plies=" + game.plies + ")",
-                game.plies > 0);
+        Bench.GameResult game = summary.games().get(0);
+        assertTrue("game must have produced moves (plies=" + game.plies() + ")",
+                game.plies() > 0);
         assertTrue("winner must be set unless the game was truncated",
-                game.winner != null || game.truncated);
+                game.winner() != null || game.truncated());
         assertTrue("search must complete at least level 1 (maxDepth="
-                + game.maxDepth + ")", game.maxDepth >= 1);
-        assertTrue(game.elapsedMs > 0);
-        assertTrue(summary.avgMsPerMove > 0);
-        assertEquals(1, summary.whiteWins + summary.blackWins
-                + (game.truncated ? 1 : 0));
+                + game.maxDepth() + ")", game.maxDepth() >= 1);
+        assertTrue(game.elapsedMs() > 0);
+        assertTrue(summary.avgMsPerMove() > 0);
+        assertEquals(1, summary.whiteWins() + summary.blackWins()
+                + (game.truncated() ? 1 : 0));
 
         String stdout = captured.toString(StandardCharsets.UTF_8);
         String jsonLine = summary.toJsonLine();

@@ -415,7 +415,7 @@ public class GameBoard {
      * @param move
      */
     public void updateLegalMovesOfSurroundingPieces(Move move){
-        updateSurroundingPieces(move.getPieceLocation(), move.getDestination());
+        updateSurroundingPieces(move.pieceLocation(), move.destination());
     }
 
     private void updateSurroundingPieces(BoardSquare origin, BoardSquare destination){
@@ -449,8 +449,8 @@ public class GameBoard {
      * @param move Move indicating the move to play.
      */
     public void movePiece(Move move){
-        BoardSquare origin = move.getPieceLocation();
-        BoardSquare destination = move.getDestination();
+        BoardSquare origin = move.pieceLocation();
+        BoardSquare destination = move.destination();
 
         Piece movingPiece = origin.getPiece();
 
@@ -496,16 +496,16 @@ public class GameBoard {
      * @param move The move to reverse
      */
     public void undo(Move move){
-        Piece movingPiece = move.getDestination().getPiece();
+        Piece movingPiece = move.destination().getPiece();
 
         //T6: the exact same Zobrist delta as movePiece (XOR is its own
         //inverse). The captured piece's key is applied by putPiece() below,
         //which keeps the key in sync for every call site.
-        zobristHash ^= TranspositionTable.pieceKey(move.getPieceLocation().getRow(), move.getPieceLocation().getColumn(), movingPiece)
-                    ^ TranspositionTable.pieceKey(move.getDestination().getRow(), move.getDestination().getColumn(), movingPiece)
+        zobristHash ^= TranspositionTable.pieceKey(move.pieceLocation().getRow(), move.pieceLocation().getColumn(), movingPiece)
+                    ^ TranspositionTable.pieceKey(move.destination().getRow(), move.destination().getColumn(), movingPiece)
                     ^ TranspositionTable.sideToMoveKey();
 
-        movePieceLite(move.getDestination(), move.getPieceLocation());
+        movePieceLite(move.destination(), move.pieceLocation());
 
         //Remove 2 turns because the previous movePiece() call incremented the
         //turn number once more...
@@ -517,7 +517,7 @@ public class GameBoard {
         if (!killedPieceLog.isEmpty()) {
             Piece pieceKilled = killedPieceLog.pop();
             if (pieceKilled != null) {
-                putPiece(pieceKilled, move.getDestination());
+                putPiece(pieceKilled, move.destination());
             }
         }
 

@@ -105,8 +105,8 @@ public class PusherApplicationTest {
             assertTrue("response '" + response + "' is not a legal White move",
                     board.getAllLegalMovesQuick().contains(move));
             assertEquals(Player.WHITE,
-                    board.getPiece(move.getPieceLocation().getRow(),
-                            move.getPieceLocation().getColumn()).getOwner());
+                    board.getPiece(move.pieceLocation().getRow(),
+                            move.pieceLocation().getColumn()).getOwner());
 
             //Command '4': the app answers with a random legal move.
             server.sendRandomMove();
@@ -159,14 +159,14 @@ public class PusherApplicationTest {
 
             //The app applied its own first move as well: the White piece sits
             //on the destination of the move it sent, the origin is empty.
-            Piece whitePiece = board.getPiece(m1.getDestination().getRow(),
-                    m1.getDestination().getColumn());
+            Piece whitePiece = board.getPiece(m1.destination().getRow(),
+                    m1.destination().getColumn());
             assertNotNull("no White piece on the destination of its own move",
                     whitePiece);
             assertEquals(Player.WHITE, whitePiece.getOwner());
             assertTrue("the origin of the app's own move should be empty",
-                    board.getSquare(m1.getPieceLocation().getRow(),
-                            m1.getPieceLocation().getColumn()).isEmpty());
+                    board.getSquare(m1.pieceLocation().getRow(),
+                            m1.pieceLocation().getColumn()).isEmpty());
 
             //Two plies have been played and it is White's turn again.
             assertEquals(2, board.getTurnNumber());
@@ -264,12 +264,12 @@ public class PusherApplicationTest {
             //parsing the payload), then D8D7 was applied on top of it.
             assertEquals(2, board.getTurnNumber());
             assertEquals(Player.WHITE, board.getCurrentPlayer());
-            Piece whitePiece = board.getPiece(m1.getDestination().getRow(),
-                    m1.getDestination().getColumn());
+            Piece whitePiece = board.getPiece(m1.destination().getRow(),
+                    m1.destination().getColumn());
             assertNotNull(whitePiece);
             assertEquals(Player.WHITE, whitePiece.getOwner());
-            assertTrue(board.getSquare(m1.getPieceLocation().getRow(),
-                    m1.getPieceLocation().getColumn()).isEmpty());
+            assertTrue(board.getSquare(m1.pieceLocation().getRow(),
+                    m1.pieceLocation().getColumn()).isEmpty());
             assertTrue("D8 should be empty after D8D7",
                     board.getSquare(7, 3).isEmpty());
             Piece d7 = board.getPiece(6, 3);

@@ -364,7 +364,7 @@ public class AspirationPvsTest {
     /** A diagonal move onto an enemy square (the tests cannot reach
      *  GameTree's private capture check). */
     private static boolean isCapture(Move move, Player player){
-        Piece destinationPiece = move.getDestination().getPiece();
+        Piece destinationPiece = move.destination().getPiece();
         return destinationPiece != null
                 && destinationPiece.getOwner() != player;
     }
@@ -512,9 +512,9 @@ public class AspirationPvsTest {
         assertNotNull("the child position must be in the pre-PVS table", entries[0]);
         assertNotNull("the child position must be in the PVS table", entries[1]);
         assertEquals("PVS must store the same flag at the root's child",
-                entries[0].flag, entries[1].flag);
-        assertEquals("... with the same score", entries[0].score, entries[1].score);
-        assertEquals("... at the same depth", entries[0].depth, entries[1].depth);
+                entries[0].flag(), entries[1].flag());
+        assertEquals("... with the same score", entries[0].score(), entries[1].score());
+        assertEquals("... at the same depth", entries[0].depth(), entries[1].depth());
     }
 
     /**

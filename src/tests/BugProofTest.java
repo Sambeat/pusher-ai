@@ -334,7 +334,7 @@ public class BugProofTest {
         assertNotNull(pusher);
         for (Move m : pusher.getLegalMovesQuick()) {
             assertFalse("E5 holds a friendly piece after the revert: it must not be a cached legal destination of D4",
-                    m.getDestination() == board.getSquare(4, 4));
+                    m.destination() == board.getSquare(4, 4));
         }
     }
 

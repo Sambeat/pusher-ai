@@ -255,8 +255,8 @@ public class GameAnalyzer {
             if (piece.getOwner() != attacker)
                 continue;
             for (Move move : piece.getLegalMovesQuick()){
-                if (move.getDestination().getPiece() != null)
-                    attackedSquares.add(move.getDestination());
+                if (move.destination().getPiece() != null)
+                    attackedSquares.add(move.destination());
             }
         }
 
@@ -279,7 +279,7 @@ public class GameAnalyzer {
     /** Whether the piece has a legal move onto the given goal row. */
     private static boolean canWinNextMove(Piece piece, int goalRow){
         for (Move move : piece.getLegalMovesQuick()){
-            if (move.getDestination().getRow() == goalRow)
+            if (move.destination().getRow() == goalRow)
                 return true;
         }
         return false;
@@ -292,7 +292,7 @@ public class GameAnalyzer {
             if (piece.getOwner() != player)
                 continue;
             for (Move move : piece.getLegalMovesQuick()){
-                if (move.getDestination().equals(square))
+                if (move.destination().equals(square))
                     return true;
             }
         }

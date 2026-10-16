@@ -232,7 +232,7 @@ public class Bench {
             System.out.println(describe(result));
         }
 
-        Summary summary = new Summary(results);
+        Summary summary = Summary.of(results);
         System.out.println(summary.toJsonLine());
 
         if (parsed.ttStats)
@@ -305,7 +305,7 @@ public class Bench {
         tt[1] += whiteTree.getTTHits() + blackTree.getTTHits();
 
         return new GameResult(index, starter, winner, plies, elapsedMs,
-                maxDepth, stalemated, winner == null);
+                maxDepth, stalemated != null, stalemated, winner == null);
     }
 
     // --------------------------------------------------------------- mixed mode (T15)
@@ -386,7 +386,8 @@ public class Bench {
         }
 
         return new AbGameResult(index, aColor, winner, plies, elapsedMs,
-                maxDepthA, maxDepthB, stalemated, winner == null);
+                maxDepthA, maxDepthB, stalemated != null, stalemated,
+                winner == null);
     }
 
     /**
@@ -419,27 +420,27 @@ public class Bench {
     // --------------------------------------------------------------- reporting
 
     private static String describe(GameResult g) {
-        String winner = (g.winner == null) ? "NONE" : g.winner.name();
-        String note = g.stalemate
-                ? " (stalemate: " + g.stalemated + " had no legal move)"
-                : (g.truncated ? " (truncated at " + PLIES_CAP + " plies)"
-                               : "");
+        String winner = (g.winner() == null) ? "NONE" : g.winner().name();
+        String note = g.stalemate()
+                ? " (stalemate: " + g.stalemated() + " had no legal move)"
+                : (g.truncated() ? " (truncated at " + PLIES_CAP + " plies)"
+                                 : "");
         return String.format(Locale.ROOT,
                 "game %d: starter=%s winner=%s plies=%d elapsedMs=%d maxDepth=%d%s",
-                g.index + 1, g.starter, winner, g.plies, g.elapsedMs,
-                g.maxDepth, note);
+                g.index() + 1, g.starter(), winner, g.plies(), g.elapsedMs(),
+                g.maxDepth(), note);
     }
 
     private static String describeAb(AbGameResult g) {
-        String winner = (g.winner == null) ? "NONE" : g.winner.name();
-        String note = g.stalemate
-                ? " (stalemate: " + g.stalemated + " had no legal move)"
-                : (g.truncated ? " (truncated at " + PLIES_CAP + " plies)"
-                               : "");
+        String winner = (g.winner() == null) ? "NONE" : g.winner().name();
+        String note = g.stalemate()
+                ? " (stalemate: " + g.stalemated() + " had no legal move)"
+                : (g.truncated() ? " (truncated at " + PLIES_CAP + " plies)"
+                                 : "");
         return String.format(Locale.ROOT,
                 "game %d: A=%s B=%s winner=%s plies=%d elapsedMs=%d maxDepthA=%d maxDepthB=%d%s",
-                g.index + 1, g.aColor, g.aColor.other(), winner, g.plies,
-                g.elapsedMs, g.maxDepthA, g.maxDepthB, note);
+                g.index() + 1, g.aColor(), g.aColor().other(), winner, g.plies(),
+                g.elapsedMs(), g.maxDepthA(), g.maxDepthB(), note);
     }
 
     // --------------------------------------------------------------- argument parsing
@@ -544,92 +545,52 @@ public class Bench {
     // --------------------------------------------------------------- results
 
     /** The outcome of one self-play game. */
-    public static final class GameResult {
-        public final int index;
-        public final Player starter;
-        public final Player winner;     // null when the game was truncated
-        public final int plies;
-        public final long elapsedMs;    // sum of the per-move search time
-        public final int maxDepth;      // deepest level fully completed
-        public final boolean stalemate; // ended via a null move
-        public final Player stalemated; // the side that had no legal move
-        public final boolean truncated; // hit the ply cap without a winner
-
-        GameResult(int index, Player starter, Player winner, int plies,
-                   long elapsedMs, int maxDepth, Player stalemated,
-                   boolean truncated) {
-            this.index = index;
-            this.starter = starter;
-            this.winner = winner;
-            this.plies = plies;
-            this.elapsedMs = elapsedMs;
-            this.maxDepth = maxDepth;
-            this.stalemate = (stalemated != null);
-            this.stalemated = stalemated;
-            this.truncated = truncated;
-        }
+    public record GameResult(int index, Player starter,
+                             Player winner,      // null when the game was truncated
+                             int plies,
+                             long elapsedMs,     // sum of the per-move search time
+                             int maxDepth,       // deepest level fully completed
+                             boolean stalemate,  // ended via a null move
+                             Player stalemated,  // the side that had no legal move
+                             boolean truncated) { // hit the ply cap without a winner
     }
 
     /** T15: the outcome of one mixed (A vs B) game. */
-    public static final class AbGameResult {
-        public final int index;
-        public final Player aColor;     // the color engine A played
-        public final Player winner;     // null when the game was truncated
-        public final int plies;
-        public final long elapsedMs;    // sum of both engines' search time
-        public final int maxDepthA;     // deepest level A fully completed
-        public final int maxDepthB;     // deepest level B fully completed
-        public final boolean stalemate; // ended via a null move
-        public final Player stalemated; // the side that had no legal move
-        public final boolean truncated; // hit the ply cap without a winner
-
-        AbGameResult(int index, Player aColor, Player winner, int plies,
-                     long elapsedMs, int maxDepthA, int maxDepthB,
-                     Player stalemated, boolean truncated) {
-            this.index = index;
-            this.aColor = aColor;
-            this.winner = winner;
-            this.plies = plies;
-            this.elapsedMs = elapsedMs;
-            this.maxDepthA = maxDepthA;
-            this.maxDepthB = maxDepthB;
-            this.stalemate = (stalemated != null);
-            this.stalemated = stalemated;
-            this.truncated = truncated;
-        }
+    public record AbGameResult(int index,
+                               Player aColor,      // the color engine A played
+                               Player winner,      // null when the game was truncated
+                               int plies,
+                               long elapsedMs,     // sum of both engines' search time
+                               int maxDepthA,      // deepest level A fully completed
+                               int maxDepthB,      // deepest level B fully completed
+                               boolean stalemate,  // ended via a null move
+                               Player stalemated,  // the side that had no legal move
+                               boolean truncated) { // hit the ply cap without a winner
     }
 
     /** Aggregate over all bench games, printed as a single JSON line. */
-    public static final class Summary {
-        public final List<GameResult> games;
-        public final int whiteWins;
-        public final int blackWins;
-        public final double avgPlies;
-        public final double avgMaxDepth;
-        public final double avgMsPerMove;
-
-        Summary(List<GameResult> games) {
-            this.games = games;
+    public record Summary(List<GameResult> games, int whiteWins, int blackWins,
+                          double avgPlies, double avgMaxDepth,
+                          double avgMsPerMove) {
+        /** One pass over the games, computing every aggregate. */
+        public static Summary of(List<GameResult> games) {
             int white = 0;
             int black = 0;
             double plies = 0;
             double depth = 0;
             double ms = 0;
             for (GameResult g : games) {
-                if (g.winner == Player.WHITE)
+                if (g.winner() == Player.WHITE)
                     white++;
-                else if (g.winner == Player.BLACK)
+                else if (g.winner() == Player.BLACK)
                     black++;
-                plies += g.plies;
-                depth += g.maxDepth;
-                ms += g.elapsedMs;
+                plies += g.plies();
+                depth += g.maxDepth();
+                ms += g.elapsedMs();
             }
             int n = games.size();
-            whiteWins = white;
-            blackWins = black;
-            avgPlies = plies / n;
-            avgMaxDepth = depth / n;
-            avgMsPerMove = (plies > 0) ? (ms / plies) : 0.0;
+            return new Summary(games, white, black, plies / n, depth / n,
+                    (plies > 0) ? (ms / plies) : 0.0);
         }
 
         /** The one-line JSON summary: the fields T3/T4/T6 quote against. */
@@ -638,8 +599,8 @@ public class Bench {
                     "{\"games\":%d,\"whiteWins\":%d,\"blackWins\":%d,"
                     + "\"avgPlies\":%.2f,\"avgMaxDepth\":%.2f,"
                     + "\"avgMsPerMove\":%.2f}",
-                    games.size(), whiteWins, blackWins,
-                    avgPlies, avgMaxDepth, avgMsPerMove);
+                    games.size(), whiteWins(), blackWins(),
+                    avgPlies(), avgMaxDepth(), avgMsPerMove());
         }
     }
 
@@ -660,10 +621,10 @@ public class Bench {
             int a = 0, b = 0, aWhite = 0, aBlack = 0, trunc = 0;
             double plies = 0, depthA = 0, depthB = 0;
             for (AbGameResult g : games) {
-                if (g.winner != null) {
-                    if (g.winner == g.aColor) {
+                if (g.winner() != null) {
+                    if (g.winner() == g.aColor()) {
                         a++;
-                        if (g.aColor == Player.WHITE)
+                        if (g.aColor() == Player.WHITE)
                             aWhite++;
                         else
                             aBlack++;
@@ -673,9 +634,9 @@ public class Bench {
                 } else {
                     trunc++;
                 }
-                plies += g.plies;
-                depthA += g.maxDepthA;
-                depthB += g.maxDepthB;
+                plies += g.plies();
+                depthA += g.maxDepthA();
+                depthB += g.maxDepthB();
             }
             int n = games.size();
             aWins = a;

@@ -243,7 +243,7 @@ public class RulesContractTest {
 
         assertNotNull(best);
         assertEquals("the goal-row win must outrank the stalemate win at the same depth",
-                7, best.getDestination().getRow());
+                7, best.destination().getRow());
     }
 
     /**
@@ -261,7 +261,7 @@ public class RulesContractTest {
         Move best = whiteTree.getBestMoveQuick(1);
 
         assertNotNull("the engine must play to stalemate the opponent, not stall", best);
-        assertEquals(6, best.getDestination().getRow());
+        assertEquals(6, best.destination().getRow());
     }
 
     // ------------------------------------------------------------------- item 4

@@ -540,7 +540,7 @@ public class ThreatEvalTest {
 
         assertNotNull(best);
         assertNotEquals("must not play into the push-capture on (5,3)",
-                board.getSquare(5, 3), best.getDestination());
+                board.getSquare(5, 3), best.destination());
         assertEquals("the safe move must be the unique best",
                 expected, best);
     }

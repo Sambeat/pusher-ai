@@ -67,20 +67,8 @@ public class TranspositionTable {
     public enum Flag { EXACT, LOWER, UPPER }
 
     /** A transposition table entry, snapshotted on probe. */
-    public static final class Entry {
-        public final long hash;
-        public final int depth;
-        public final int score;
-        public final Flag flag;
-        public final Move bestMove;
-
-        public Entry(long hash, int depth, int score, Flag flag, Move bestMove) {
-            this.hash = hash;
-            this.depth = depth;
-            this.score = score;
-            this.flag = flag;
-            this.bestMove = bestMove;
-        }
+    public record Entry(long hash, int depth, int score, Flag flag,
+                        Move bestMove) {
     }
 
     private final int sizeMask;
@@ -198,10 +186,10 @@ public class TranspositionTable {
      * &lt;= alpha. The depth check is the caller's job.
      */
     public static boolean usable(Entry entry, int alpha, int beta){
-        switch (entry.flag){
+        switch (entry.flag()){
             case EXACT: return true;
-            case LOWER: return entry.score >= beta;
-            case UPPER: return entry.score <= alpha;
+            case LOWER: return entry.score() >= beta;
+            case UPPER: return entry.score() <= alpha;
             default:    throw new IllegalStateException("unknown flag");
         }
     }
