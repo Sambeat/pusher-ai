@@ -6,8 +6,8 @@ and replies with its chosen move.
 
 - `src/game/` — the board model (`GameBoard` singleton, `Piece`, `Pusher`,
   `Pushee`, `Move`, ...).
-- `src/client/` — the engine and the socket client (`GameTree`, `PlayerStrategy`,
-  `GameAnalyzer`, `PusherApplication`).
+- `src/client/` — the engine and the socket client (`GameTree`, `GameSession`,
+  `PlayerStrategy`, `GameAnalyzer`, `PusherApplication`).
 - `src/tests/` — JUnit 5 (Jupiter) tests. `BugProofTest` is the regression
   guard: it encodes every bug fixed in the `fix/bugs-and-tests` work.
 

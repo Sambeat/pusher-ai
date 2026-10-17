@@ -72,7 +72,7 @@ and are diagonal-only — a straight-ahead capture is not legal.
   `GameTree.STALEMATE_MARGIN` (1000): the engine prefers the actual objective
   (goal row) over stalemating the opponent, and prefers stalemating the
   opponent over any losing line.
-- App level: `client.PusherApplication.communicateMove` logs
+- App level: `client.GameSession.communicateMove` logs
   `No legal move to play.` and sends nothing when the engine returns null.
 - `GameBoard` has no stalemate concept of its own (`winner()` only checks goal
   rows).
@@ -107,7 +107,9 @@ setup enables Pushee movement anywhere in the code (the never-used
 
 ## 5. Protocol (client ↔ server, port 8888)
 
-**Code today** — `client.PusherApplication.java`:
+**Code today** — `client.GameSession.java` (the command loop; the
+`client.PusherApplication` entry point opens the socket and hands the
+streams to a session):
 
 - Connection: the client opens `localhost:8888` and reads command bytes in an
   endless loop; unknown command bytes are silently ignored.
@@ -138,7 +140,7 @@ setup enables Pushee movement anywhere in the code (the never-used
   `1` = Black Pushee, `2` = Black Pusher, `3` = White Pushee, `4` = White
   Pusher, `0` = empty.
 - Move payload (after `'3'`): read the same way (one available()-based read,
-  no framing; the parser itself is unchanged — `PusherApplication.parseMove`).
+  no framing; the parser itself is unchanged — `GameSession.parseMove`).
   The client's format is 4 characters
   `colLetter rowDigit colLetter rowDigit` (e.g. `D2E3` = from D2 to E3; columns
   A–H, row digits 1–8 with 1 = top row 0 and 8 = bottom row 7) — **confirmed

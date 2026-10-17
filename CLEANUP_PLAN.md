@@ -331,7 +331,7 @@ loopback sockets via `MockPusherServer`) and `RepetitionTest` cover the loop.
 **Non-goal here:** the `public static` mutable state (`board`, `move`,
 `gameTree`, `plies`, `MAX_PLIES`). `RepetitionTest` pokes `MAX_PLIES`/`plies`
 directly, and an instance-based `Session` class would touch every integration
-test. Parked as a future task, not part of this cleanup.
+test. Parked as a future task, not part of this cleanup — **done as C12.**
 
 ---
 
@@ -456,6 +456,55 @@ class lists — the framework migration and the runner change are separable.
 
 **Verification.** `git status` clean after the untrack; `./build.sh test` still
 green (untracked IDE files are not part of the build).
+
+---
+
+## C12 — `GameSession`: the parked `PusherApplication` state refactor
+
+This is the follow-up parked by C7, tracked here so the decision record
+stays in one place. It is a small project, not a cleanup pass, but it follows
+the same one rule: **no behavior changes** — wire protocol, stdout, timing
+and the "one bad command must not kill the client" boundary stay
+byte-identical.
+
+**Goal.** The client's per-connection state (`move`, `gameTree`, `plies`,
+`MAX_PLIES`) was `public static` on `PusherApplication`, so the app could
+only ever run one game at a time and app-level tests had to poke and restore
+globals (`RepetitionTest` saved/restored `MAX_PLIES`/`plies` around the
+warning test). Move the state and the command loop into an instance-based
+`GameSession`; `PusherApplication` shrinks to the socket entry point.
+
+**Changes (as landed).**
+1. New `client/GameSession` owns: `move`, `gameTree`, `plies`, and the cap as
+   a per-session `final int maxPlies` (`GameSession.DEFAULT_MAX_PLIES = 300`,
+   the old `MAX_PLIES` value) with `new GameSession()` / `new
+   GameSession(maxPlies)` and `getPlies()`/`getMaxPlies()` accessors. The
+   command loop (`run`), `beginGame`, `applyOpponentPly`, `playRandomMove`,
+   `registerPly`, `communicateMove`, `parseMove` and friends moved there
+   verbatim as instance methods, together with the wire-protocol javadoc.
+   `board` is the shared `GameBoard` singleton held by reference (the
+   singleton stays — see Decisions); the legacy-layout constants and the
+   unseeded `RANDOM` generator moved with the logic (still one generator per
+   class, so the '4' random-pick sequence is unchanged for a long-lived
+   client).
+2. `PusherApplication` keeps `main` (identical stdout) and the long-standing
+   `public static void run(InputStream, OutputStream)` as a thin delegator to
+   `new GameSession().run(...)` — so `main`, the MANIFEST `Main-Class`, and
+   the test call sites that drive the app through the static stay untouched.
+3. `tests.PusherApplicationTest.AppSession` gains a `GameSession` constructor
+   overload + `getAppSession()` (the default-arg constructor and the socket
+   path via the static `run` are unchanged); `tests.RepetitionTest` now
+   builds a dedicated `new GameSession(4)` instead of poking and restoring
+   `PusherApplication.MAX_PLIES`/`plies`, and asserts on
+   `appSession.getPlies() >= appSession.getMaxPlies()`.
+4. Live doc references updated (`docs/RULES.md` "Code today" sections,
+   `MockPusherServer` javadoc, README class list); historical T-plan
+   mentions of the old layout are left alone.
+
+**Verification.** `./build.sh test` → 135/135 green (the suite drives both
+entry points: `AppSession`'s piped-stream path over `GameSession.run` and
+`startApp`'s real loopback-socket path over the static `PusherApplication.run`
+via `MockPusherServer`).
 
 ---
 

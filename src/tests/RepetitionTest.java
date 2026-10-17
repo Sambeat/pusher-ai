@@ -1,7 +1,7 @@
 package tests;
 
+import client.GameSession;
 import client.GameTree;
-import client.PusherApplication;
 import game.GameBoard;
 import game.Move;
 import game.Piece;
@@ -30,8 +30,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * arrangement — enough to break a shuffle, never enough to sacrifice a
  * forced win (terminal scores are ~±2^31).
  *
- * App level: PusherApplication counts plies per game and logs a warning at
- * MAX_PLIES but keeps playing (the protocol has no known draw command).
+ * App level: the client's GameSession counts plies per game and logs a
+ * warning at its max-plies cap but keeps playing (the protocol has no known
+ * draw command).
  */
 public class RepetitionTest {
 
@@ -144,8 +145,6 @@ public class RepetitionTest {
 
     @Test
     public void endlessPlayLogsAWarningAtThePlyCapButKeepsPlaying() throws Exception {
-        final int originalCap = PusherApplication.MAX_PLIES;
-        final int originalPlies = PusherApplication.plies;
         final PrintStream originalOut = System.out;
         final ByteArrayOutputStream captured = new ByteArrayOutputStream();
 
@@ -158,12 +157,13 @@ public class RepetitionTest {
         raceBoard[3][3] = 4;   //White Pusher D4
         raceBoard[7][7] = 2;   //Black Pusher H8
 
+        //A dedicated session with a small cap: the warning path is
+        //exercised without touching any shared state (C12).
+        GameSession appSession = new GameSession(4);
+
         System.setOut(new PrintStream(captured, true));
         try (PusherApplicationTest.AppSession session =
-                     new PusherApplicationTest.AppSession()) {
-
-            PusherApplication.MAX_PLIES = 4;
-            PusherApplication.plies = 0;
+                     new PusherApplicationTest.AppSession(appSession)) {
 
             session.sendNewGameWhite(raceBoard);
             String white1 = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
@@ -184,11 +184,9 @@ public class RepetitionTest {
             session.sendOpponentMove("H6H5");
             String white4 = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
             assertNotNull(white4, "the app must keep playing past the ply cap");
-            assertTrue(PusherApplication.plies >= PusherApplication.MAX_PLIES, "plies were counted past the cap");
+            assertTrue(appSession.getPlies() >= appSession.getMaxPlies(), "plies were counted past the cap");
         } finally {
             System.setOut(originalOut);
-            PusherApplication.MAX_PLIES = originalCap;
-            PusherApplication.plies = originalPlies;
         }
 
         String log = captured.toString();
