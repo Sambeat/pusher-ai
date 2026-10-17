@@ -1,5 +1,6 @@
 package tests;
 
+import client.GameSession;
 import client.PusherApplication;
 import game.BoardSquare;
 import game.GameBoard;
@@ -436,13 +437,14 @@ public class PusherApplicationTest {
     }
 
     /**
-     * Drive PusherApplication.run with in-memory piped streams (no socket):
+     * Drive a GameSession with in-memory piped streams (no socket):
      * the test writes protocol commands into the app's input and reads the
      * app's 4-byte move responses from its output. Package-visible so the
      * T10 app-level test (tests.RepetitionTest) can reuse it.
      */
     static class AppSession implements AutoCloseable {
 
+        private final GameSession appSession;
         private final PipedOutputStream toApp;
         private final PipedInputStream appIn;
         private final PipedOutputStream appOut;
@@ -454,7 +456,18 @@ public class PusherApplicationTest {
                 Collections.synchronizedList(new ArrayList<String>());
         private final Object responseLock = new Object();
 
+        /** A session with the default ply cap (GameSession.DEFAULT_MAX_PLIES). */
         AppSession() throws IOException {
+            this(new GameSession());
+        }
+
+        /**
+         * @param appSession The session to run on the app thread (e.g. one
+         *                  with a small maxPlies cap, as tests.RepetitionTest
+         *                  builds to exercise the endless-play warning).
+         */
+        AppSession(GameSession appSession) throws IOException {
+            this.appSession = appSession;
             appIn = new PipedInputStream();
             toApp = new PipedOutputStream(appIn);
             appOut = new PipedOutputStream();
@@ -473,7 +486,7 @@ public class PusherApplicationTest {
                 @Override
                 public void run() {
                     try {
-                        PusherApplication.run(appIn, appOut);
+                        appSession.run(appIn, appOut);
                     } catch (IOException e) {
                         //EOF: the session is over.
                     }
@@ -481,6 +494,11 @@ public class PusherApplicationTest {
             }, "PusherApplication-under-test");
             appThread.setDaemon(true);
             appThread.start();
+        }
+
+        /** The session this AppSession is driving (for state assertions). */
+        GameSession getAppSession() {
+            return appSession;
         }
 
         void sendNewGameWhite(int[][] board) throws IOException {

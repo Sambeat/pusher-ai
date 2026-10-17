@@ -32,7 +32,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * payload at once.
  *
  * Client responses are the 4-char move strings the app writes raw (no
- * newline, see PusherApplication.communicateMove). This server reads them as
+ * newline, see GameSession.communicateMove). This server reads them as
  * 4-byte chunks and records every response, in order, for assertions.
  */
 public class MockPusherServer implements AutoCloseable {
@@ -132,7 +132,7 @@ public class MockPusherServer implements AutoCloseable {
 
     /**
      * Encode a board in the 64-int text format that
-     * PusherApplication.createInitialBoard expects: tokens start at H8 (row 7,
+     * GameSession.createInitialBoard expects: tokens start at H8 (row 7,
      * column 7), proceed right-to-left, then bottom-to-top, so the 1st token
      * is H8 ... the 64th is A1 (docs/RULES.md, item 5).
      *
