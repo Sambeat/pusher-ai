@@ -8,8 +8,8 @@ and replies with its chosen move.
   `Pushee`, `Move`, ...).
 - `src/client/` — the engine and the socket client (`GameTree`, `PlayerStrategy`,
   `GameAnalyzer`, `PusherApplication`).
-- `src/tests/` — JUnit 4 tests. `BugProofTest` is the regression guard: it
-  encodes every bug fixed in the `fix/bugs-and-tests` work.
+- `src/tests/` — JUnit 5 (Jupiter) tests. `BugProofTest` is the regression
+  guard: it encodes every bug fixed in the `fix/bugs-and-tests` work.
 
 ## Requirements
 
@@ -25,11 +25,13 @@ One command builds everything and runs the whole test suite:
 ```
 
 What it does:
-1. Downloads `lib/junit-4.13.2.jar` and `lib/hamcrest-core-1.3.jar` from Maven
-   Central **only if missing** (pinned exact versions).
+1. Downloads `lib/junit-platform-console-standalone-1.14.4.jar` (JUnit 5 /
+   Jupiter console launcher, standalone edition) from Maven Central **only if
+   missing** (pinned exact version).
 2. Compiles all of `src/` into `out/`.
-3. Runs every test class under `src/tests` via `org.junit.runner.JUnitCore` and
-   prints the JUnit summary line (expected: `OK (135 tests)`).
+3. Runs every test class under `src/tests` with the JUnit 5 console launcher
+   (`execute --select-package tests --fail-if-no-tests`) and prints its summary
+   block (expected: `[ 135 tests successful ]` and `[ 0 tests failed ]`).
 
 It exits non-zero on a missing toolchain, a compile error, or any test failure.
 `lib/` and `out/` are git-ignored, so this works from a fresh clone.

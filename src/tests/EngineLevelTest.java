@@ -12,8 +12,8 @@ import game.Player;
 import game.Pushee;
 import game.Pusher;
 
-import org.junit.After;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * T15 — A/B strength harness: flag-correctness tests.
@@ -51,7 +51,7 @@ public class EngineLevelTest {
 
     private final GameBoard board = GameBoard.getInstance();
 
-    @After
+    @AfterEach
     public void cleanBoard() {
         board.reset();
         board.setCurrentPlayer(Player.WHITE);
@@ -101,12 +101,12 @@ public class EngineLevelTest {
                         .debugSearchScore(depth, Integer.MIN_VALUE,
                                 Integer.MAX_VALUE);
 
-                assertEquals(which + " depth " + depth + ": the TT must be "
-                        + "value-inert", t4, t6);
-                assertEquals(which + " depth " + depth + ": PVS must be "
-                        + "value-inert (with TT)", t6, t6pvs);
-                assertEquals(which + " depth " + depth + ": PVS must be "
-                        + "value-inert (without TT)", t4, t4pvs);
+                assertEquals(t4, t6, which + " depth " + depth + ": the TT must be "
+                        + "value-inert");
+                assertEquals(t6, t6pvs, which + " depth " + depth + ": PVS must be "
+                        + "value-inert (with TT)");
+                assertEquals(t4, t4pvs, which + " depth " + depth + ": PVS must be "
+                        + "value-inert (without TT)");
             }
         }
     }
@@ -138,10 +138,10 @@ public class EngineLevelTest {
             int t4 = Bench.treeFor(Level.T4, max, min, BUDGET, SEED)
                     .aspirationScoreAtDepth(cap);
 
-            assertEquals(which + ": t10 == t6 (repetition is value-inert "
-                    + "without a history)", t10, t6);
-            assertEquals(which + ": t6 == t4 (the TT is value-inert under "
-                    + "iterative deepening)", t6, t4);
+            assertEquals(t10, t6, which + ": t10 == t6 (repetition is value-inert "
+                    + "without a history)");
+            assertEquals(t6, t4, which + ": t6 == t4 (the TT is value-inert under "
+                    + "iterative deepening)");
         }
     }
 
@@ -174,8 +174,7 @@ public class EngineLevelTest {
         board.putPiece(new Pusher(Player.BLACK), 2, 3);
         board.updateAllLegaLMoves();
 
-        assertEquals("sanity: the removed term must be non-zero", 20,
-                GameAnalyzer.threatTerms(board, Player.WHITE));
+        assertEquals(20, GameAnalyzer.threatTerms(board, Player.WHITE), "sanity: the removed term must be non-zero");
         int base1 = (7 + 1)
                 - (3 + (GameBoard.GAME_BOARD_LENGTH - 1 - 1)
                         + GameAnalyzer.DEFENSIVE_PREMIUM)
@@ -183,19 +182,15 @@ public class EngineLevelTest {
                         + GameAnalyzer.DEFENSIVE_PREMIUM)
                 + 3 / 2;
         assertEquals(-16, base1);
-        assertEquals("terms off must be exactly the pre-T4 formula",
-                base1, GameAnalyzer.analyzeFor(board, Player.WHITE, false));
-        assertEquals("terms on keeps the pinned value", 4,
-                GameAnalyzer.analyzeFor(board, Player.WHITE));
-        assertEquals("the strategies must honor the flag", base1,
-                new PlayerStrategy(Player.WHITE).analyze(false));
+        assertEquals(base1, GameAnalyzer.analyzeFor(board, Player.WHITE, false), "terms off must be exactly the pre-T4 formula");
+        assertEquals(4, GameAnalyzer.analyzeFor(board, Player.WHITE), "terms on keeps the pinned value");
+        assertEquals(base1, new PlayerStrategy(Player.WHITE).analyze(false), "the strategies must honor the flag");
         // t2 evaluates exactly this: no quiescence, no threat terms ->
         // the depth-0 root returns the stand-pat directly.
-        assertEquals("t2's depth-0 evaluation must be the pre-T4 stand-pat",
-                base1, Bench.treeFor(Level.T2, Player.WHITE, Player.BLACK,
+        assertEquals(base1, Bench.treeFor(Level.T2, Player.WHITE, Player.BLACK,
                         BUDGET, SEED)
                         .debugSearchScore(0, Integer.MIN_VALUE,
-                                Integer.MAX_VALUE));
+                                Integer.MAX_VALUE), "t2's depth-0 evaluation must be the pre-T4 stand-pat");
 
         // Position 2: ready-to-win (White Pushee one push from the goal
         // row with its Pusher behind):
@@ -208,16 +203,12 @@ public class EngineLevelTest {
         board.putPiece(new Pushee(Player.WHITE), 6, 3);
         board.updateAllLegaLMoves();
 
-        assertEquals("sanity: the removed term must be non-zero",
-                GameAnalyzer.READY_TO_WIN,
-                GameAnalyzer.threatTerms(board, Player.WHITE));
+        assertEquals(GameAnalyzer.READY_TO_WIN, GameAnalyzer.threatTerms(board, Player.WHITE), "sanity: the removed term must be non-zero");
         int base2 = (3 + 6) + (7 + 5) + 3 / 2;
         assertEquals(22, base2);
-        assertEquals("terms off must be exactly the pre-T4 formula",
-                base2, GameAnalyzer.analyzeFor(board, Player.WHITE, false));
-        assertEquals("terms on adds exactly READY_TO_WIN", base2
-                + GameAnalyzer.READY_TO_WIN,
-                GameAnalyzer.analyzeFor(board, Player.WHITE));
+        assertEquals(base2, GameAnalyzer.analyzeFor(board, Player.WHITE, false), "terms off must be exactly the pre-T4 formula");
+        assertEquals(base2
+                + GameAnalyzer.READY_TO_WIN, GameAnalyzer.analyzeFor(board, Player.WHITE), "terms on adds exactly READY_TO_WIN");
     }
 
     // ------------------------------------------------------------------
@@ -240,19 +231,16 @@ public class EngineLevelTest {
                 new GameTreeConfig(BUDGET, SEED, true, false, false, true,
                         false, true, true, true));
         int standPat = GameAnalyzer.analyzeFor(board, max, true);
-        assertEquals("q off: the depth-0 node is the stand-pat itself",
-                standPat, qOff.debugSearchScore(0, Integer.MIN_VALUE,
-                        Integer.MAX_VALUE));
-        assertEquals("q off: no q-node is visited", 0,
-                qOff.getQNodeCount());
+        assertEquals(standPat, qOff.debugSearchScore(0, Integer.MIN_VALUE,
+                        Integer.MAX_VALUE), "q off: the depth-0 node is the stand-pat itself");
+        assertEquals(0, qOff.getQNodeCount(), "q off: no q-node is visited");
 
         setT15Position("captureRace");
         GameTree qOn = new GameTree(max, max.other(),
                 new GameTreeConfig(BUDGET, SEED, true, false, false, true,
                         true, true, true, true));
         qOn.debugSearchScore(0, Integer.MIN_VALUE, Integer.MAX_VALUE);
-        assertTrue("q on: the depth-0 node is a q-node",
-                qOn.getQNodeCount() > 0);
+        assertTrue(qOn.getQNodeCount() > 0, "q on: the depth-0 node is a q-node");
     }
 
     /**
@@ -290,10 +278,8 @@ public class EngineLevelTest {
         on.setRepetitionHistory(poison);
         Move chosenOn = on.getBestMoveQuick(1);
         assertNotNull(chosenOn);
-        assertNotEquals("sanity (T10's pin): the poison must bite",
-                repeating, chosenOn);
-        assertEquals("flag on: the search appended the current arrangement",
-                2, on.getRepetitionHistorySize());
+        assertNotEquals(repeating, chosenOn, "sanity (T10's pin): the poison must bite");
+        assertEquals(2, on.getRepetitionHistorySize(), "flag on: the search appended the current arrangement");
 
         // Flag OFF: the same poison history is ignored — the natural best
         // move is chosen — and nothing was appended.
@@ -301,10 +287,8 @@ public class EngineLevelTest {
                 new GameTreeConfig(BUDGET, SEED, true, false, false, true,
                         true, true, false, true));
         off.setRepetitionHistory(poison);
-        assertEquals("flag off: the poisoned history must be ignored",
-                repeating, off.getBestMoveQuick(1));
-        assertEquals("flag off: the search must not append to the history",
-                1, off.getRepetitionHistorySize());
+        assertEquals(repeating, off.getBestMoveQuick(1), "flag off: the poisoned history must be ignored");
+        assertEquals(1, off.getRepetitionHistorySize(), "flag off: the search must not append to the history");
     }
 
     // ------------------------------------------------------------------
@@ -319,8 +303,7 @@ public class EngineLevelTest {
      */
     @Test
     public void levelsParseAndFormAMonotoneStack() {
-        assertSame("current must alias t16", Level.T16,
-                Level.parse("current"));
+        assertSame(Level.T16, Level.parse("current"), "current must alias t16");
         assertEquals(Level.T2, Level.parse("t2"));
         assertEquals(Level.T3, Level.parse("t3"));
         assertEquals(Level.T4, Level.parse("t4"));
@@ -328,47 +311,45 @@ public class EngineLevelTest {
         assertEquals(Level.T10, Level.parse("t10"));
         assertEquals(Level.T13, Level.parse("t13"));
         assertEquals(Level.T16, Level.parse("t16"));
-        assertNull("an unknown level must not parse", Level.parse("bogus"));
-        assertNull("null must not parse", Level.parse(null));
+        assertNull(Level.parse("bogus"), "an unknown level must not parse");
+        assertNull(Level.parse(null), "null must not parse");
 
         Level[] stack = {Level.T2, Level.T3, Level.T4, Level.T6, Level.T10,
                 Level.T13, Level.T16};
         for (int i = 1; i < stack.length; i++) {
             Level earlier = stack[i - 1];
             Level later = stack[i];
-            assertTrue(later.key() + " must keep " + earlier.key()
-                    + "'s quiescence", earlier.quiescence
-                    ? later.quiescence : true);
-            assertTrue(later.key() + " must keep " + earlier.key()
-                    + "'s threat terms", earlier.threatTerms
-                    ? later.threatTerms : true);
-            assertTrue(later.key() + " must keep " + earlier.key()
-                    + "'s transposition table", earlier.transposition
-                    ? later.transposition : true);
-            assertTrue(later.key() + " must keep " + earlier.key()
-                    + "'s repetition guard", earlier.repetition
-                    ? later.repetition : true);
-            assertTrue(later.key() + " must keep " + earlier.key()
-                    + "'s aspiration windows", earlier.aspiration
-                    ? later.aspiration : true);
-            assertTrue(later.key() + " must keep " + earlier.key()
-                    + "'s PVS", earlier.pvs ? later.pvs : true);
-            assertTrue(later.key() + " must keep " + earlier.key()
-                    + "'s proximity ordering", earlier.ordering
-                    ? later.ordering : true);
+            assertTrue(earlier.quiescence
+                    ? later.quiescence : true, later.key() + " must keep " + earlier.key()
+                    + "'s quiescence");
+            assertTrue(earlier.threatTerms
+                    ? later.threatTerms : true, later.key() + " must keep " + earlier.key()
+                    + "'s threat terms");
+            assertTrue(earlier.transposition
+                    ? later.transposition : true, later.key() + " must keep " + earlier.key()
+                    + "'s transposition table");
+            assertTrue(earlier.repetition
+                    ? later.repetition : true, later.key() + " must keep " + earlier.key()
+                    + "'s repetition guard");
+            assertTrue(earlier.aspiration
+                    ? later.aspiration : true, later.key() + " must keep " + earlier.key()
+                    + "'s aspiration windows");
+            assertTrue(earlier.pvs ? later.pvs : true, later.key() + " must keep " + earlier.key()
+                    + "'s PVS");
+            assertTrue(earlier.ordering
+                    ? later.ordering : true, later.key() + " must keep " + earlier.key()
+                    + "'s proximity ordering");
         }
         // And each step adds at least one feature (the stack strictly
         // grows: t2 bare, t16 full).
-        assertFalse("t2 must be the bare base",
-                Level.T2.quiescence || Level.T2.threatTerms
+        assertFalse(Level.T2.quiescence || Level.T2.threatTerms
                         || Level.T2.transposition || Level.T2.repetition
                         || Level.T2.aspiration || Level.T2.pvs
-                        || Level.T2.ordering);
-        assertTrue("t16 must be the full current engine",
-                Level.T16.quiescence && Level.T16.threatTerms
+                        || Level.T2.ordering, "t2 must be the bare base");
+        assertTrue(Level.T16.quiescence && Level.T16.threatTerms
                         && Level.T16.transposition && Level.T16.repetition
                         && Level.T16.aspiration && Level.T16.pvs
-                        && Level.T16.ordering);
+                        && Level.T16.ordering, "t16 must be the full current engine");
     }
 
     /**
@@ -393,9 +374,8 @@ public class EngineLevelTest {
                 int legacy = new GameTree(max, min, BUDGET, SEED)
                         .debugSearchScore(depth, Integer.MIN_VALUE,
                                 Integer.MAX_VALUE);
-                assertEquals(which + " depth " + depth + ": treeFor(T16) "
-                        + "must equal the 4-argument constructor", viaLevel,
-                        legacy);
+                assertEquals(viaLevel, legacy, which + " depth " + depth + ": treeFor(T16) "
+                        + "must equal the 4-argument constructor");
             }
         }
     }
@@ -447,15 +427,12 @@ public class EngineLevelTest {
         json1 = runAbCaptured(args, lines1).toJsonLine();
         json2 = runAbCaptured(args, lines2).toJsonLine();
 
-        assertEquals("the JSON summary must be identical", json1, json2);
-        assertEquals("both runs must report the same number of games",
-                lines1.size(), lines2.size());
+        assertEquals(json1, json2, "the JSON summary must be identical");
+        assertEquals(lines1.size(), lines2.size(), "both runs must report the same number of games");
         for (int i = 0; i < lines1.size(); i++) {
-            assertEquals("per-game line " + i + " must be identical "
+            assertEquals(stripElapsedMs(lines1.get(i)), stripElapsedMs(lines2.get(i)), "per-game line " + i + " must be identical "
                     + "(modulo elapsedMs): " + lines1.get(i) + " vs "
-                    + lines2.get(i),
-                    stripElapsedMs(lines1.get(i)),
-                    stripElapsedMs(lines2.get(i)));
+                    + lines2.get(i));
         }
     }
 
@@ -473,7 +450,7 @@ public class EngineLevelTest {
         } finally {
             System.setOut(originalOut);
         }
-        assertNotNull("runAb must succeed on valid arguments", summary);
+        assertNotNull(summary, "runAb must succeed on valid arguments");
         for (String line : captured.toString(StandardCharsets.UTF_8)
                 .split("\n")) {
             if (line.startsWith("game "))

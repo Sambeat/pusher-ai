@@ -7,10 +7,10 @@ import game.Player;
 import game.Pushee;
 import game.Pusher;
 
-import org.junit.After;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -38,7 +38,7 @@ public class RulesContractTest {
     private final GameBoard board = GameBoard.getInstance();
     private final GameTree whiteTree = new GameTree(Player.WHITE, Player.BLACK);
 
-    @After
+    @AfterEach
     public void cleanBoard() {
         board.reset();
         board.setCurrentPlayer(Player.WHITE);
@@ -243,8 +243,7 @@ public class RulesContractTest {
         Move best = whiteTree.getBestMoveQuick(1);
 
         assertNotNull(best);
-        assertEquals("the goal-row win must outrank the stalemate win at the same depth",
-                7, best.destination().getRow());
+        assertEquals(7, best.destination().getRow(), "the goal-row win must outrank the stalemate win at the same depth");
     }
 
     /**
@@ -261,7 +260,7 @@ public class RulesContractTest {
 
         Move best = whiteTree.getBestMoveQuick(1);
 
-        assertNotNull("the engine must play to stalemate the opponent, not stall", best);
+        assertNotNull(best, "the engine must play to stalemate the opponent, not stall");
         assertEquals(6, best.destination().getRow());
     }
 
@@ -334,7 +333,7 @@ public class RulesContractTest {
         board.putPiece(new Pusher(Player.BLACK), 2, 3); // enemy on the mirror square
         board.updateAllLegaLMoves();
 
-        assertTrue("White's Pushee must have no legal move", legalMoves().isEmpty());
+        assertTrue(legalMoves().isEmpty(), "White's Pushee must have no legal move");
     }
 
     /**

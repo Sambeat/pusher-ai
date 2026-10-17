@@ -8,7 +8,7 @@ import game.Piece;
 import game.Player;
 import game.Pushee;
 import game.Pusher;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -21,11 +21,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.regex.Pattern;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * T2: end-to-end tests of PusherApplication (the app layer: protocol handling,
@@ -92,9 +92,9 @@ public class PusherApplicationTest {
             server.sendNewGameWhite(gameOneBoard());
 
             String response = server.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
-            assertNotNull("the app did not respond to '1' + board", response);
-            assertTrue("response '" + response
-                    + "' is not a 4-char move", MOVE_FORMAT.matcher(response).matches());
+            assertNotNull(response, "the app did not respond to '1' + board");
+            assertTrue(MOVE_FORMAT.matcher(response).matches(), "response '" + response
+                    + "' is not a 4-char move");
 
             //The board was built exactly as sent (position AND piece type).
             assertBoardMatches(gameOneBoard());
@@ -102,8 +102,7 @@ public class PusherApplicationTest {
             //The response is in White's legal move list on the parsed board.
             assertEquals(Player.WHITE, board.getCurrentPlayer());
             Move move = parseFourChar(response);
-            assertTrue("response '" + response + "' is not a legal White move",
-                    board.getAllLegalMovesQuick().contains(move));
+            assertTrue(board.getAllLegalMovesQuick().contains(move), "response '" + response + "' is not a legal White move");
             assertEquals(Player.WHITE,
                     board.getPiece(move.pieceLocation().getRow(),
                             move.pieceLocation().getColumn()).getOwner());
@@ -111,14 +110,12 @@ public class PusherApplicationTest {
             //Command '4': the app answers with a random legal move.
             server.sendRandomMove();
             String randomResponse = server.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
-            assertNotNull("the app did not respond to '4'", randomResponse);
-            assertTrue("random response '" + randomResponse
-                    + "' is not a 4-char move",
-                    MOVE_FORMAT.matcher(randomResponse).matches());
-            assertTrue("random response '" + randomResponse
-                    + "' is not a legal White move",
-                    board.getAllLegalMovesQuick()
-                            .contains(parseFourChar(randomResponse)));
+            assertNotNull(randomResponse, "the app did not respond to '4'");
+            assertTrue(MOVE_FORMAT.matcher(randomResponse).matches(), "random response '" + randomResponse
+                    + "' is not a 4-char move");
+            assertTrue(board.getAllLegalMovesQuick()
+                            .contains(parseFourChar(randomResponse)), "random response '" + randomResponse
+                    + "' is not a legal White move");
         }
     }
 
@@ -142,31 +139,27 @@ public class PusherApplicationTest {
             //The Black Pusher D8 moves straight ahead to D7 (empty square).
             server.sendOpponentMove("D8D7");
             String whiteMove2 = server.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
-            assertNotNull("the app did not respond to '3' + opponent move",
-                    whiteMove2);
-            assertTrue("response '" + whiteMove2
-                    + "' is not a 4-char move", MOVE_FORMAT.matcher(whiteMove2).matches());
+            assertNotNull(whiteMove2, "the app did not respond to '3' + opponent move");
+            assertTrue(MOVE_FORMAT.matcher(whiteMove2).matches(), "response '" + whiteMove2
+                    + "' is not a 4-char move");
 
             //The app applied the opponent's move to the singleton board:
             //the Black Pusher is on D7 and D8 is empty.
             BoardSquare d8 = board.getSquare(7, 3);
             BoardSquare d7 = board.getSquare(6, 3);
-            assertTrue("D8 should be empty after D8D7", d8.isEmpty());
-            assertNotNull("D7 should hold the Black Pusher after D8D7",
-                    d7.getPiece());
+            assertTrue(d8.isEmpty(), "D8 should be empty after D8D7");
+            assertNotNull(d7.getPiece(), "D7 should hold the Black Pusher after D8D7");
             assertEquals(Player.BLACK, d7.getPiece().getOwner());
-            assertTrue("D7 should hold a Pusher", d7.getPiece() instanceof Pusher);
+            assertTrue(d7.getPiece() instanceof Pusher, "D7 should hold a Pusher");
 
             //The app applied its own first move as well: the White piece sits
             //on the destination of the move it sent, the origin is empty.
             Piece whitePiece = board.getPiece(m1.destination().getRow(),
                     m1.destination().getColumn());
-            assertNotNull("no White piece on the destination of its own move",
-                    whitePiece);
+            assertNotNull(whitePiece, "no White piece on the destination of its own move");
             assertEquals(Player.WHITE, whitePiece.getOwner());
-            assertTrue("the origin of the app's own move should be empty",
-                    board.getSquare(m1.pieceLocation().getRow(),
-                            m1.pieceLocation().getColumn()).isEmpty());
+            assertTrue(board.getSquare(m1.pieceLocation().getRow(),
+                            m1.pieceLocation().getColumn()).isEmpty(), "the origin of the app's own move should be empty");
 
             //Two plies have been played and it is White's turn again.
             assertEquals(2, board.getTurnNumber());
@@ -174,9 +167,8 @@ public class PusherApplicationTest {
 
             //The second response is a legal White move.
             Move m2 = parseFourChar(whiteMove2);
-            assertTrue("second response '" + whiteMove2
-                    + "' is not a legal White move",
-                    board.getAllLegalMovesQuick().contains(m2));
+            assertTrue(board.getAllLegalMovesQuick().contains(m2), "second response '" + whiteMove2
+                    + "' is not a legal White move");
         }
     }
 
@@ -221,12 +213,10 @@ public class PusherApplicationTest {
             assertEquals(Player.BLACK, board.getCurrentPlayer());
 
             //The app answered with a legal Black move instead of hanging.
-            assertNotNull("the app did not answer game 2's first opponent move",
-                    blackMove);
-            assertTrue("response '" + blackMove
-                    + "' is not a 4-char move", MOVE_FORMAT.matcher(blackMove).matches());
-            assertTrue("response '" + blackMove + "' is not a legal Black move",
-                    board.getAllLegalMovesQuick().contains(parseFourChar(blackMove)));
+            assertNotNull(blackMove, "the app did not answer game 2's first opponent move");
+            assertTrue(MOVE_FORMAT.matcher(blackMove).matches(), "response '" + blackMove
+                    + "' is not a 4-char move");
+            assertTrue(board.getAllLegalMovesQuick().contains(parseFourChar(blackMove)), "response '" + blackMove + "' is not a legal Black move");
         }
     }
 
@@ -245,8 +235,7 @@ public class PusherApplicationTest {
             //("Could not parse opponent move: [XYZ]"), sends nothing, and the
             //command loop must keep running.
             session.sendOpponentMove("XYZ");
-            assertNull("the app must not respond to a garbage move",
-                    session.waitForResponse(2000));
+            assertNull(session.waitForResponse(2000), "the app must not respond to a garbage move");
 
             //The loop survived: the next valid command is still handled.
             //D8D7 is legal regardless of the app's first move (it never
@@ -254,10 +243,9 @@ public class PusherApplicationTest {
             //piece it moved lands on row 4).
             session.sendOpponentMove("D8D7");
             String whiteMove2 = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
-            assertNotNull("the app did not recover after a garbage move",
-                    whiteMove2);
-            assertTrue("response '" + whiteMove2
-                    + "' is not a 4-char move", MOVE_FORMAT.matcher(whiteMove2).matches());
+            assertNotNull(whiteMove2, "the app did not recover after a garbage move");
+            assertTrue(MOVE_FORMAT.matcher(whiteMove2).matches(), "response '" + whiteMove2
+                    + "' is not a 4-char move");
 
             //Board state: game 1's pending White move was applied when the
             //garbage '3' arrived (the app applies its pending move before
@@ -270,16 +258,14 @@ public class PusherApplicationTest {
             assertEquals(Player.WHITE, whitePiece.getOwner());
             assertTrue(board.getSquare(m1.pieceLocation().getRow(),
                     m1.pieceLocation().getColumn()).isEmpty());
-            assertTrue("D8 should be empty after D8D7",
-                    board.getSquare(7, 3).isEmpty());
+            assertTrue(board.getSquare(7, 3).isEmpty(), "D8 should be empty after D8D7");
             Piece d7 = board.getPiece(6, 3);
-            assertNotNull("D7 should hold the Black Pusher after D8D7", d7);
+            assertNotNull(d7, "D7 should hold the Black Pusher after D8D7");
             assertEquals(Player.BLACK, d7.getOwner());
 
             //And the response is a legal White move on that state.
-            assertTrue("post-garbage response '" + whiteMove2
-                    + "' is not a legal White move",
-                    board.getAllLegalMovesQuick().contains(parseFourChar(whiteMove2)));
+            assertTrue(board.getAllLegalMovesQuick().contains(parseFourChar(whiteMove2)), "post-garbage response '" + whiteMove2
+                    + "' is not a legal White move");
         }
     }
 
@@ -356,20 +342,19 @@ public class PusherApplicationTest {
                         fail(where + " should hold a piece (" + value + ")");
                     }
                     if (value == 1) {
-                        assertTrue(where, isPiece(actual, Player.BLACK, false));
+                        assertTrue(isPiece(actual, Player.BLACK, false), where);
                     } else if (value == 2) {
-                        assertTrue(where, isPiece(actual, Player.BLACK, true));
+                        assertTrue(isPiece(actual, Player.BLACK, true), where);
                     } else if (value == 3) {
-                        assertTrue(where, isPiece(actual, Player.WHITE, false));
+                        assertTrue(isPiece(actual, Player.WHITE, false), where);
                     } else {
-                        assertTrue(where, isPiece(actual, Player.WHITE, true));
+                        assertTrue(isPiece(actual, Player.WHITE, true), where);
                     }
                     expectedCount++;
                 }
             }
         }
-        assertEquals("total piece count", expectedCount,
-                board.getNumberOfPieces());
+        assertEquals(expectedCount, board.getNumberOfPieces(), "total piece count");
     }
 
     private static boolean isPiece(Piece piece, Player owner, boolean pusher) {

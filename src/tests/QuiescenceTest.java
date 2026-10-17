@@ -2,8 +2,8 @@ package tests;
 
 import client.GameTree;
 import game.*;
-import org.junit.*;
-import static org.junit.Assert.*;
+import org.junit.jupiter.api.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * T3: quiescence search.
@@ -24,7 +24,7 @@ public class QuiescenceTest {
 
     private final GameBoard board = GameBoard.getInstance();
 
-    @After
+    @AfterEach
     public void cleanBoard(){
         board.reset();
         board.setCurrentPlayer(Player.WHITE);
@@ -62,8 +62,8 @@ public class QuiescenceTest {
         GameTree gameTree = new GameTree(Player.WHITE, Player.BLACK);
         Move best = gameTree.getBestMoveQuick(1);
 
-        assertEquals("Depth-1 search must not hang the pusher to an "
-                + "immediate recapture (q-search sees it)", expected, best);
+        assertEquals(expected, best, "Depth-1 search must not hang the pusher to an "
+                + "immediate recapture (q-search sees it)");
     }
 
     /**
@@ -102,8 +102,8 @@ public class QuiescenceTest {
         GameTree gameTree = new GameTree(Player.WHITE, Player.BLACK);
         Move best = gameTree.getBestMoveQuick(1);
 
-        assertEquals("The only non-losing move is a capture whose safety is "
-                + "one ply beyond the horizon; q-search must find it", expected, best);
+        assertEquals(expected, best, "The only non-losing move is a capture whose safety is "
+                + "one ply beyond the horizon; q-search must find it");
     }
 
     /**
@@ -123,9 +123,8 @@ public class QuiescenceTest {
         gameTree.getBestMoveQuick();
         long elapsed = System.currentTimeMillis() - before;
 
-        assertTrue("getBestMoveQuick took " + elapsed + " ms, expected <= "
-                + (GameTree.MAX_TIME_MILLIS + 500),
-                elapsed <= GameTree.MAX_TIME_MILLIS + 500);
+        assertTrue(elapsed <= GameTree.MAX_TIME_MILLIS + 500, "getBestMoveQuick took " + elapsed + " ms, expected <= "
+                + (GameTree.MAX_TIME_MILLIS + 500));
     }
 
     /** 32-piece position, same layout as GameTreeTest.setBoardToDefaultStart. */
