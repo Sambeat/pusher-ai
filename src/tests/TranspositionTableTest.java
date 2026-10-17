@@ -5,9 +5,9 @@ import client.GameTree;
 import client.GameTreeConfig;
 import client.TranspositionTable;
 import game.*;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * T6 — Zobrist position keys, transposition table semantics, and the
@@ -44,14 +44,12 @@ public class TranspositionTableTest {
         Move second = new Move(board.getSquare(4, 3), board.getSquare(5, 3));
 
         board.movePiece(first);
-        assertNotEquals("one piece moved must change the key",
-                base, board.getZobristHash());
+        assertNotEquals(base, board.getZobristHash(), "one piece moved must change the key");
         board.movePiece(second);
         long keyFirstThenSecond = board.getZobristHash();
         board.undo(second);
         board.undo(first);
-        assertEquals("undoing both moves must restore the key",
-                base, board.getZobristHash());
+        assertEquals(base, board.getZobristHash(), "undoing both moves must restore the key");
 
         board.movePiece(second);
         board.movePiece(first);
@@ -60,8 +58,7 @@ public class TranspositionTableTest {
         board.undo(second);
         assertEquals(base, board.getZobristHash());
 
-        assertEquals("same position via two move orders must have the same key",
-                keyFirstThenSecond, keySecondThenFirst);
+        assertEquals(keyFirstThenSecond, keySecondThenFirst, "same position via two move orders must have the same key");
     }
 
     /** The side to move is part of the position key. */
@@ -138,12 +135,10 @@ public class TranspositionTableTest {
 
         tt.store(key, 5, 4, 100, TranspositionTable.Flag.EXACT, null);
         tt.store(key, 5, 2, 55, TranspositionTable.Flag.UPPER, null);
-        assertEquals("a shallower entry must not replace a deeper one",
-                100, tt.probe(key, 5).score());
+        assertEquals(100, tt.probe(key, 5).score(), "a shallower entry must not replace a deeper one");
 
         tt.store(key, 5, 6, 77, TranspositionTable.Flag.LOWER, null);
-        assertEquals("a deeper entry replaces the older one",
-                77, tt.probe(key, 5).score());
+        assertEquals(77, tt.probe(key, 5).score(), "a deeper entry replaces the older one");
     }
 
     /**
@@ -230,11 +225,9 @@ public class TranspositionTableTest {
             Move withTT = ttOn.getBestMoveQuick(depth);
             Move withoutTT = ttOff.getBestMoveQuick(depth);
 
-            assertEquals("position " + i
-                    + ": unique best move not found (test premise broken)",
-                    expected, withTT);
-            assertEquals("position " + i + ": TT on/off disagree",
-                    withTT, withoutTT);
+            assertEquals(expected, withTT, "position " + i
+                    + ": unique best move not found (test premise broken)");
+            assertEquals(withTT, withoutTT, "position " + i + ": TT on/off disagree");
         }
     }
 

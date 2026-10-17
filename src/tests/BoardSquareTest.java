@@ -2,8 +2,8 @@ package tests;
 
 import game.*;
 
-import static org.junit.Assert.*;
-import org.junit.*;
+import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.*;
 
 
 /**
@@ -18,7 +18,7 @@ public class BoardSquareTest {
     private final static Piece TEST_PIECE = new Pusher(Player.BLACK);
 
     private BoardSquare boardSquare;
-    @Before
+    @BeforeEach
     public void before(){
         GameBoard theBoard = GameBoard.getInstance();
         boardSquare = new BoardSquare(TEST_PIECE, TEST_ROW, TEST_COLUMN);

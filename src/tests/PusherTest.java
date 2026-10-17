@@ -3,8 +3,8 @@ package tests;
 import client.GameTree;
 import game.*;
 
-import static org.junit.Assert.*;
-import org.junit.*;
+import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.*;
 
 /**
  * JUnit test for Pusher.java

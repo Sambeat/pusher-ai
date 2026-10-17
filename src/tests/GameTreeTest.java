@@ -5,8 +5,8 @@ import client.GameTree;
 import client.GameTreeConfig;
 import client.TranspositionTable;
 import game.*;
-import org.junit.*;
-import static org.junit.Assert.*;
+import org.junit.jupiter.api.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -38,9 +38,8 @@ public class GameTreeTest {
         gameTree.getBestMoveQuick();
         long after = System.currentTimeMillis();
 
-        assertTrue("Generating tree took over " + MAX_ALLOTTED_TIME_MILLIS
-                + "milliseconds...",
-                after - before <= MAX_ALLOTTED_TIME_MILLIS);
+        assertTrue(after - before <= MAX_ALLOTTED_TIME_MILLIS, "Generating tree took over " + MAX_ALLOTTED_TIME_MILLIS
+                + "milliseconds...");
     }
 
     @Test
@@ -145,8 +144,7 @@ public class GameTreeTest {
 
         }
 
-        assertTrue("Always chose first possible move...",
-                timesPiece2Moved > 0);
+        assertTrue(timesPiece2Moved > 0, "Always chose first possible move...");
     }
 
     private void resetBoard(){
@@ -221,9 +219,8 @@ public class GameTreeTest {
                 int handoffOn = t14Tree(which, seed, true)
                         .debugSearchScore(depth, Integer.MIN_VALUE,
                                 Integer.MAX_VALUE);
-                assertEquals(which + " depth " + depth
-                        + ": the handoff must not change the value",
-                        handoffOff, handoffOn);
+                assertEquals(handoffOff, handoffOn, which + " depth " + depth
+                        + ": the handoff must not change the value");
             }
         }
     }
@@ -253,9 +250,9 @@ public class GameTreeTest {
                 nodes[i] = tree.getNodeCount();
             }
         }
-        assertTrue("the relaxed handoff must visit fewer nodes at depth "
+        assertTrue(nodes[1] < nodes[0], "the relaxed handoff must visit fewer nodes at depth "
                 + measuredDepth + " (off=" + nodes[0] + ", on=" + nodes[1]
-                + ")", nodes[1] < nodes[0]);
+                + ")");
     }
 
     // ------------------------------------------------------------------
@@ -283,7 +280,7 @@ public class GameTreeTest {
                     new GameTreeConfig(T14_BUDGET, seed, tt, true, true,
                             true, true, true, true, true));
             tree.debugSearchScore(3, Integer.MIN_VALUE, Integer.MAX_VALUE);
-            assertEquals("tt flag " + tt, tt, tree.getTTProbes() > 0);
+            assertEquals(tt, tree.getTTProbes() > 0, "tt flag " + tt);
         }
 
         // Aspiration: the 'race' position forces a retry at level 2+ iff
@@ -295,8 +292,7 @@ public class GameTreeTest {
                     new GameTreeConfig(T14_BUDGET, seed, true, asp, true,
                             true, true, true, true, true));
             tree.aspirationScoreAtDepth(4);
-            assertEquals("aspiration flag " + asp, asp,
-                    tree.getAspirationRetries() > 0);
+            assertEquals(asp, tree.getAspirationRetries() > 0, "aspiration flag " + asp);
         }
 
         // PVS: the 'captureRace' position forces a fail-high re-search iff
@@ -307,8 +303,7 @@ public class GameTreeTest {
                     new GameTreeConfig(T14_BUDGET, seed, true, false, pvs,
                             true, true, true, true, true));
             tree.debugSearchScore(3, Integer.MIN_VALUE, Integer.MAX_VALUE);
-            assertEquals("pvs flag " + pvs, pvs,
-                    tree.getPvsResearched() > 0);
+            assertEquals(pvs, tree.getPvsResearched() > 0, "pvs flag " + pvs);
         }
     }
 
@@ -347,14 +342,11 @@ public class GameTreeTest {
         int whiteScore = GameAnalyzer.analyzeFor(board, Player.WHITE);
         int blackScore = GameAnalyzer.analyzeFor(board, Player.BLACK);
 
-        assertEquals("the term breakdown (150 - 168 + 10 + 3200) must be "
-                + "exact — a drift here changes the documented headroom",
-                3192, whiteScore);
-        assertTrue("max achievable static score must stay under the forced-"
-                + "win bound with headroom (white=" + whiteScore + ")",
-                Math.abs(whiteScore) < 9000);
-        assertTrue("... from Black's view as well (black=" + blackScore + ")",
-                Math.abs(blackScore) < 9000);
+        assertEquals(3192, whiteScore, "the term breakdown (150 - 168 + 10 + 3200) must be "
+                + "exact — a drift here changes the documented headroom");
+        assertTrue(Math.abs(whiteScore) < 9000, "max achievable static score must stay under the forced-"
+                + "win bound with headroom (white=" + whiteScore + ")");
+        assertTrue(Math.abs(blackScore) < 9000, "... from Black's view as well (black=" + blackScore + ")");
     }
 
     // ------------------------------------------------------------------
@@ -398,8 +390,8 @@ public class GameTreeTest {
             // Pass 2: same tree, table still dirty from pass 1.
             int s2 = pvsOn.debugSearchScore(depth, Integer.MIN_VALUE,
                     Integer.MAX_VALUE);
-            assertEquals("position " + i + ": pass 2 must leave the board "
-                    + "exact", hash0, board.getZobristHash());
+            assertEquals(hash0, board.getZobristHash(), "position " + i + ": pass 2 must leave the board "
+                    + "exact");
 
             // Pass 3: a PVS-off search probing the SAME dirty table.
             GameTree pvsOff = new GameTree(max, min,
@@ -408,15 +400,13 @@ public class GameTreeTest {
             pvsOff.setTranspositionTable(shared);
             int s3 = pvsOff.debugSearchScore(depth, Integer.MIN_VALUE,
                     Integer.MAX_VALUE);
-            assertEquals("position " + i + ": pass 3 must leave the board "
-                    + "exact", hash0, board.getZobristHash());
+            assertEquals(hash0, board.getZobristHash(), "position " + i + ": pass 3 must leave the board "
+                    + "exact");
 
-            assertEquals("position " + i + " (seed " + seed + "): dirty-"
-                    + "table reuse (PVS on) must return the same root score",
-                    s1, s2);
-            assertEquals("position " + i + " (seed " + seed + "): dirty-"
-                    + "table reuse (PVS off) must return the same root score",
-                    s1, s3);
+            assertEquals(s1, s2, "position " + i + " (seed " + seed + "): dirty-"
+                    + "table reuse (PVS on) must return the same root score");
+            assertEquals(s1, s3, "position " + i + " (seed " + seed + "): dirty-"
+                    + "table reuse (PVS off) must return the same root score");
         }
     }
 
@@ -448,8 +438,8 @@ public class GameTreeTest {
                 new GameTreeConfig(T14_BUDGET, 42L, true, false, true,
                         true, true, true, true, true));
         pvs.debugSearchScore(3, Integer.MIN_VALUE, Integer.MAX_VALUE);
-        assertTrue("sanity: a re-search must have happened", pvs
-                .getPvsResearched() > 0);
+        assertTrue(pvs
+                .getPvsResearched() > 0, "sanity: a re-search must have happened");
         assertEquals(h, board.getZobristHash());
         assertEquals(turn, board.getTurnNumber());
         assertEquals(Player.WHITE, board.getCurrentPlayer());
@@ -465,8 +455,8 @@ public class GameTreeTest {
                 new GameTreeConfig(T14_BUDGET, 42L, true, true, true,
                         true, true, true, true, true));
         asp.aspirationScoreAtDepth(4);
-        assertTrue("sanity: a retry must have happened", asp
-                .getAspirationRetries() > 0);
+        assertTrue(asp
+                .getAspirationRetries() > 0, "sanity: a retry must have happened");
         assertEquals(h, board.getZobristHash());
         assertEquals(turn, board.getTurnNumber());
         assertEquals(Player.WHITE, board.getCurrentPlayer());

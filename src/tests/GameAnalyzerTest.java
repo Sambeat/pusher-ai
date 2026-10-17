@@ -8,7 +8,7 @@ import game.GameBoard;
 
 import game.Player;
 import game.Pusher;
-import org.junit.*;
+import org.junit.jupiter.api.*;
 /**
  * Created by M on 11/8/2015.
  */

@@ -3,8 +3,8 @@ package tests;
 import client.GameTree;
 import client.GameTreeConfig;
 import game.*;
-import org.junit.*;
-import static org.junit.Assert.*;
+import org.junit.jupiter.api.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * T16 — move ordering: goal proximity of quiet moves
@@ -35,7 +35,7 @@ public class MoveOrderingTest {
 
     private final GameBoard board = GameBoard.getInstance();
 
-    @After
+    @AfterEach
     public void cleanBoard(){
         board.reset();
         board.setCurrentPlayer(Player.WHITE);
@@ -73,9 +73,8 @@ public class MoveOrderingTest {
                 int on = t16Tree(which, SEED, true)
                         .debugSearchScore(depth, Integer.MIN_VALUE,
                                 Integer.MAX_VALUE);
-                assertEquals(which + " depth " + depth
-                        + ": proximity ordering must not change the value",
-                        off, on);
+                assertEquals(off, on, which + " depth " + depth
+                        + ": proximity ordering must not change the value");
             }
         }
     }
@@ -107,16 +106,12 @@ public class MoveOrderingTest {
                 i++;
             }
         }
-        assertEquals("TT off: ordering must not change the value",
-                scores[0], scores[1]);
-        assertTrue("TT off: the proximity ordering must visit fewer nodes "
-                + "(off=" + nodes[0] + ", on=" + nodes[1] + ")",
-                nodes[1] < nodes[0]);
-        assertEquals("TT on: ordering must not change the value",
-                scores[2], scores[3]);
-        assertTrue("TT on: the proximity ordering must visit fewer nodes "
-                + "(off=" + nodes[2] + ", on=" + nodes[3] + ")",
-                nodes[3] < nodes[2]);
+        assertEquals(scores[0], scores[1], "TT off: ordering must not change the value");
+        assertTrue(nodes[1] < nodes[0], "TT off: the proximity ordering must visit fewer nodes "
+                + "(off=" + nodes[0] + ", on=" + nodes[1] + ")");
+        assertEquals(scores[2], scores[3], "TT on: ordering must not change the value");
+        assertTrue(nodes[3] < nodes[2], "TT on: the proximity ordering must visit fewer nodes "
+                + "(off=" + nodes[2] + ", on=" + nodes[3] + ")");
     }
 
     /**
@@ -151,9 +146,8 @@ public class MoveOrderingTest {
                 timesPiece2Moved++;
         }
 
-        assertTrue("Always chose first possible move... (the within-bucket "
-                + "shuffle must survive the proximity bucketing)",
-                timesPiece2Moved > 0);
+        assertTrue(timesPiece2Moved > 0, "Always chose first possible move... (the within-bucket "
+                + "shuffle must survive the proximity bucketing)");
     }
 
     /**
@@ -177,10 +171,9 @@ public class MoveOrderingTest {
             tree.debugSearchScore(depth, Integer.MIN_VALUE,
                     Integer.MAX_VALUE);
             if (depth >= 3)
-                assertTrue("the TT handoff must reach internal nodes at "
+                assertTrue(tree.getTtOrderHits() > 0, "the TT handoff must reach internal nodes at "
                         + "level " + depth + " with ordering on "
-                        + "(ttOrderHits=" + tree.getTtOrderHits() + ")",
-                        tree.getTtOrderHits() > 0);
+                        + "(ttOrderHits=" + tree.getTtOrderHits() + ")");
         }
     }
 

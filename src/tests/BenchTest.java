@@ -1,13 +1,13 @@
 package tests;
 
 import client.Bench;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * T7 smoke test: the bench runs one real self-play game on a short budget,
@@ -35,16 +35,14 @@ public class BenchTest {
         }
         long elapsed = System.currentTimeMillis() - before;
 
-        assertNotNull("bench must run and return a summary", summary);
+        assertNotNull(summary, "bench must run and return a summary");
         assertEquals(1, summary.games().size());
 
         Bench.GameResult game = summary.games().get(0);
-        assertTrue("game must have produced moves (plies=" + game.plies() + ")",
-                game.plies() > 0);
-        assertTrue("winner must be set unless the game was truncated",
-                game.winner() != null || game.truncated());
-        assertTrue("search must complete at least level 1 (maxDepth="
-                + game.maxDepth() + ")", game.maxDepth() >= 1);
+        assertTrue(game.plies() > 0, "game must have produced moves (plies=" + game.plies() + ")");
+        assertTrue(game.winner() != null || game.truncated(), "winner must be set unless the game was truncated");
+        assertTrue(game.maxDepth() >= 1, "search must complete at least level 1 (maxDepth="
+                + game.maxDepth() + ")");
         assertTrue(game.elapsedMs() > 0);
         assertTrue(summary.avgMsPerMove() > 0);
         assertEquals(1, summary.whiteWins() + summary.blackWins()
@@ -52,13 +50,11 @@ public class BenchTest {
 
         String stdout = captured.toString(StandardCharsets.UTF_8);
         String jsonLine = summary.toJsonLine();
-        assertTrue("summary JSON line must be printed: " + jsonLine,
-                stdout.contains(jsonLine));
-        assertTrue("per-game report line must be printed",
-                stdout.contains("game 1:"));
+        assertTrue(stdout.contains(jsonLine), "summary JSON line must be printed: " + jsonLine);
+        assertTrue(stdout.contains("game 1:"), "per-game report line must be printed");
 
-        assertTrue("one 500 ms-budget game must finish in under 10 s "
-                + "(took " + elapsed + " ms)", elapsed < MAX_ALLOTTED_TIME_MILLIS);
+        assertTrue(elapsed < MAX_ALLOTTED_TIME_MILLIS, "one 500 ms-budget game must finish in under 10 s "
+                + "(took " + elapsed + " ms)");
     }
 
     @Test
@@ -74,9 +70,8 @@ public class BenchTest {
             System.setErr(originalErr);
         }
 
-        assertNull("a missing value must be rejected", summary);
-        assertTrue("usage must be printed: "
-                + capturedErr.toString(StandardCharsets.UTF_8),
-                capturedErr.toString(StandardCharsets.UTF_8).contains("Usage:"));
+        assertNull(summary, "a missing value must be rejected");
+        assertTrue(capturedErr.toString(StandardCharsets.UTF_8).contains("Usage:"), "usage must be printed: "
+                + capturedErr.toString(StandardCharsets.UTF_8));
     }
 }

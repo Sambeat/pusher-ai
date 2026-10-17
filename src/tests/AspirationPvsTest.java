@@ -4,8 +4,8 @@ import client.GameTree;
 import client.GameTreeConfig;
 import client.TranspositionTable;
 import game.*;
-import org.junit.*;
-import static org.junit.Assert.*;
+import org.junit.jupiter.api.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * T13 Part A — aspiration windows.
@@ -46,7 +46,7 @@ public class AspirationPvsTest {
     /** A generous per-move budget: the fixed depths used here finish in ms. */
     private static final long BUDGET = GameTree.MAX_TIME_MILLIS;
 
-    @After
+    @AfterEach
     public void cleanBoard(){
         board.reset();
         board.setCurrentPlayer(Player.WHITE);
@@ -217,11 +217,11 @@ public class AspirationPvsTest {
                 fullScore - 5, fullScore + 5);
         long narrowNodes = narrowTree.getNodeCount();
 
-        assertEquals("a tight window must not change the value", fullScore, narrowScore);
-        assertTrue("a tight window must visit no more nodes (full=" + fullNodes
-                + ", narrow=" + narrowNodes + ")", narrowNodes <= fullNodes);
-        assertTrue("a tight window should prune at least one node here (full="
-                + fullNodes + ", narrow=" + narrowNodes + ")", narrowNodes < fullNodes);
+        assertEquals(fullScore, narrowScore, "a tight window must not change the value");
+        assertTrue(narrowNodes <= fullNodes, "a tight window must visit no more nodes (full=" + fullNodes
+                + ", narrow=" + narrowNodes + ")");
+        assertTrue(narrowNodes < fullNodes, "a tight window should prune at least one node here (full="
+                + fullNodes + ", narrow=" + narrowNodes + ")");
     }
 
     // ------------------------------------------------------------------
@@ -253,10 +253,9 @@ public class AspirationPvsTest {
                 .debugSearchScore(depth,
                 Integer.MIN_VALUE, Integer.MAX_VALUE);
 
-        assertTrue("expected this position to force an aspiration retry, but none "
-                + "happened (score=" + score + ")",
-                withAspiration.getAspirationRetries() > 0);
-        assertEquals("a retry must still recover the exact value", reference, score);
+        assertTrue(withAspiration.getAspirationRetries() > 0, "expected this position to force an aspiration retry, but none "
+                + "happened (score=" + score + ")");
+        assertEquals(reference, score, "a retry must still recover the exact value");
     }
 
     // ------------------------------------------------------------------
@@ -280,10 +279,8 @@ public class AspirationPvsTest {
                         true, true, true, true))
                 .aspirationScoreAtDepth(depth);
 
-        assertTrue("the forced win must be found (|score| > 9000), got " + score,
-                Math.abs(score) > 9000);
-        assertEquals("a forced win ranks above every static score", score,
-                Integer.MAX_VALUE - 3);
+        assertTrue(Math.abs(score) > 9000, "the forced win must be found (|score| > 9000), got " + score);
+        assertEquals(score, Integer.MAX_VALUE - 3, "a forced win ranks above every static score");
     }
 
     // ------------------------------------------------------------------
@@ -305,8 +302,7 @@ public class AspirationPvsTest {
                 new GameTreeConfig(BUDGET, seed, true, true, true, true,
                         true, true, true, true));
         int enabledScore = enabled.aspirationScoreAtDepth(depth);
-        assertTrue("sanity: aspiration is on and does retry here",
-                enabled.getAspirationRetries() > 0);
+        assertTrue(enabled.getAspirationRetries() > 0, "sanity: aspiration is on and does retry here");
 
         setRace();
         GameTree disabled = new GameTree(Player.WHITE, Player.BLACK,
@@ -315,8 +311,7 @@ public class AspirationPvsTest {
         int disabledScore = disabled.aspirationScoreAtDepth(depth);
         assertEquals(0, disabled.getAspirationRetries());
 
-        assertEquals("disabling aspiration must not change the value",
-                enabledScore, disabledScore);
+        assertEquals(enabledScore, disabledScore, "disabling aspiration must not change the value");
     }
 
     // ------------------------------------------------------------------
@@ -337,12 +332,10 @@ public class AspirationPvsTest {
         Move best = gameTree.getBestMoveQuick();
         long elapsed = System.currentTimeMillis() - before;
 
-        assertNotNull("expected a move on the full start", best);
-        assertTrue("getBestMoveQuick took " + elapsed + " ms, expected <= "
-                + (GameTree.MAX_TIME_MILLIS + 500),
-                elapsed <= GameTree.MAX_TIME_MILLIS + 500);
-        assertTrue("the returned move must be legal for the side to move",
-                board.getAllLegalMovesQuick().contains(best));
+        assertNotNull(best, "expected a move on the full start");
+        assertTrue(elapsed <= GameTree.MAX_TIME_MILLIS + 500, "getBestMoveQuick took " + elapsed + " ms, expected <= "
+                + (GameTree.MAX_TIME_MILLIS + 500));
+        assertTrue(board.getAllLegalMovesQuick().contains(best), "the returned move must be legal for the side to move");
     }
 
     private void setPos(String which){
@@ -419,7 +412,7 @@ public class AspirationPvsTest {
             int reference = treeFor(which, seed, true, false, false)
                     .debugSearchScore(depth, Integer.MIN_VALUE, Integer.MAX_VALUE);
 
-            assertEquals(which + " depth " + depth, reference, withPvs);
+            assertEquals(reference, withPvs, which + " depth " + depth);
         }
     }
 
@@ -450,12 +443,9 @@ public class AspirationPvsTest {
         GameTree pvs = treeFor("captureRace", seed, true, false, true);
         Move chosen = pvs.getBestMoveQuick(depth);
 
-        assertEquals("PVS must choose the same move as the pre-PVS engine",
-                expected, chosen);
-        assertTrue("the chosen move must be the capture: " + chosen,
-                isCapture(chosen, Player.WHITE));
-        assertTrue("a null-window violation must have triggered a re-search",
-                pvs.getPvsResearched() > 0);
+        assertEquals(expected, chosen, "PVS must choose the same move as the pre-PVS engine");
+        assertTrue(isCapture(chosen, Player.WHITE), "the chosen move must be the capture: " + chosen);
+        assertTrue(pvs.getPvsResearched() > 0, "a null-window violation must have triggered a re-search");
     }
 
     /**
@@ -483,9 +473,9 @@ public class AspirationPvsTest {
                 Integer.MIN_VALUE, Integer.MAX_VALUE);
         long onNodes = onTree.getNodeCount();
 
-        assertEquals("PVS must not change the value", offScore, onScore);
-        assertTrue("PVS must visit fewer nodes (off=" + offNodes
-                + ", on=" + onNodes + ")", onNodes < offNodes);
+        assertEquals(offScore, onScore, "PVS must not change the value");
+        assertTrue(onNodes < offNodes, "PVS must visit fewer nodes (off=" + offNodes
+                + ", on=" + onNodes + ")");
     }
 
     /**
@@ -511,8 +501,7 @@ public class AspirationPvsTest {
             setPos("tactical");
             GameTree tree = treeFor("tactical", seed, true, t13on, t13on);
             Move best = tree.getBestMoveQuick(depth);
-            assertEquals("the best move must be the same with and without PVS",
-                    childMove, best);
+            assertEquals(childMove, best, "the best move must be the same with and without PVS");
 
             board.movePiece(best);
             long hash = board.getZobristHash();
@@ -521,12 +510,11 @@ public class AspirationPvsTest {
             entries[i] = tree.probeTT(hash, turn);
         }
 
-        assertNotNull("the child position must be in the pre-PVS table", entries[0]);
-        assertNotNull("the child position must be in the PVS table", entries[1]);
-        assertEquals("PVS must store the same flag at the root's child",
-                entries[0].flag(), entries[1].flag());
-        assertEquals("... with the same score", entries[0].score(), entries[1].score());
-        assertEquals("... at the same depth", entries[0].depth(), entries[1].depth());
+        assertNotNull(entries[0], "the child position must be in the pre-PVS table");
+        assertNotNull(entries[1], "the child position must be in the PVS table");
+        assertEquals(entries[0].flag(), entries[1].flag(), "PVS must store the same flag at the root's child");
+        assertEquals(entries[0].score(), entries[1].score(), "... with the same score");
+        assertEquals(entries[0].depth(), entries[1].depth(), "... at the same depth");
     }
 
     /**
@@ -553,7 +541,7 @@ public class AspirationPvsTest {
                 setPos(which);
                 Move on = treeFor(which, seed, true, true, true)
                         .getBestMoveQuick(depth);
-                assertEquals(which + " seed=" + seed + " (T13 on vs off)", off, on);
+                assertEquals(off, on, which + " seed=" + seed + " (T13 on vs off)");
             }
         }
     }

@@ -9,7 +9,9 @@ leave the full suite green:
 
 ```bash
 ./build.sh test
-# Expected: OK (135 tests)
+# Expected: JUnit 5 console summary with [ 135 tests successful ] and
+#           [ 0 tests failed ] (C10 moved the runner from JUnit 4's
+#           "OK (135 tests)" line to the Jupiter console launcher)
 ```
 
 `tests.BugProofTest` is the regression guard (inherited from the T-plan). A task that

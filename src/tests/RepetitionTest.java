@@ -8,17 +8,17 @@ import game.Piece;
 import game.Player;
 import game.Pushee;
 import game.Pusher;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * T10: the endless-play guard.
@@ -99,8 +99,7 @@ public class RepetitionTest {
         //Sanity: with no repetition history the engine plays the repeating
         //move (it is the unique natural best move).
         GameTree fresh = new GameTree(Player.WHITE, Player.BLACK);
-        assertEquals("sanity: the natural best move is the repeating one",
-                repeating, fresh.getBestMoveQuick(1));
+        assertEquals(repeating, fresh.getBestMoveQuick(1), "sanity: the natural best move is the repeating one");
 
         //With the child position in the history, a non-repeating move must
         //be chosen.
@@ -110,8 +109,7 @@ public class RepetitionTest {
         tree.setRepetitionHistory(history);
         Move chosen = tree.getBestMoveQuick(1);
         assertNotNull(chosen);
-        assertNotEquals("a non-repeating move exists and must be preferred",
-                repeating, chosen);
+        assertNotEquals(repeating, chosen, "a non-repeating move exists and must be preferred");
     }
 
     @Test
@@ -141,8 +139,7 @@ public class RepetitionTest {
         tree.setRepetitionHistory(history);
 
         Move chosen = tree.getBestMoveQuick(1);
-        assertEquals("the forced win must be played even though it repeats",
-                winning, chosen);
+        assertEquals(winning, chosen, "the forced win must be played even though it repeats");
     }
 
     @Test
@@ -170,7 +167,7 @@ public class RepetitionTest {
 
             session.sendNewGameWhite(raceBoard);
             String white1 = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
-            assertNotNull("the app did not open the game", white1);
+            assertNotNull(white1, "the app did not open the game");
 
             //Each '3' applies two plies (the pending White move, then the
             //opponent's): after the second exchange the count reaches the
@@ -186,10 +183,8 @@ public class RepetitionTest {
 
             session.sendOpponentMove("H6H5");
             String white4 = session.waitForResponse(RESPONSE_TIMEOUT_MILLIS);
-            assertNotNull("the app must keep playing past the ply cap",
-                    white4);
-            assertTrue("plies were counted past the cap",
-                    PusherApplication.plies >= PusherApplication.MAX_PLIES);
+            assertNotNull(white4, "the app must keep playing past the ply cap");
+            assertTrue(PusherApplication.plies >= PusherApplication.MAX_PLIES, "plies were counted past the cap");
         } finally {
             System.setOut(originalOut);
             PusherApplication.MAX_PLIES = originalCap;
@@ -197,7 +192,6 @@ public class RepetitionTest {
         }
 
         String log = captured.toString();
-        assertTrue("the ply-cap warning must be logged, got:\n" + log,
-                log.contains("possible endless play"));
+        assertTrue(log.contains("possible endless play"), "the ply-cap warning must be logged, got:\n" + log);
     }
 }

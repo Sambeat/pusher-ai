@@ -8,10 +8,10 @@ import game.Player;
 import game.Pushee;
 import game.Pusher;
 
-import org.junit.After;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * T8: symmetric evaluations.
@@ -58,7 +58,7 @@ public class EvalSymmetryTest {
     private final PlayerStrategy white = new PlayerStrategy(Player.WHITE);
     private final PlayerStrategy black = new PlayerStrategy(Player.BLACK);
 
-    @After
+    @AfterEach
     public void cleanBoard(){
         board.reset();
         board.setCurrentPlayer(Player.WHITE);
@@ -115,9 +115,8 @@ public class EvalSymmetryTest {
             place(pieces, false);
             if (termsExpectedNonZero[i]) {
                 int removed = GameAnalyzer.threatTerms(board, Player.WHITE);
-                assertTrue(labels[i] + ": the threat terms must be non-"
-                        + "zero here (removed=" + removed + ")",
-                        removed != 0);
+                assertTrue(removed != 0, labels[i] + ": the threat terms must be non-"
+                        + "zero here (removed=" + removed + ")");
             }
             mirrorHolds(pieces, labels[i], false);
         }
@@ -139,10 +138,9 @@ public class EvalSymmetryTest {
         place(pieces, true);
         int blackScore = black.analyze(threatTerms);
 
-        assertEquals(label + " (threat terms " + (threatTerms ? "on" : "off")
+        assertEquals(whiteScore, blackScore, label + " (threat terms " + (threatTerms ? "on" : "off")
                         + "): eval_white(p) " + whiteScore
-                        + " must equal eval_black(mirror(p)) " + blackScore,
-                whiteScore, blackScore);
+                        + " must equal eval_black(mirror(p)) " + blackScore);
     }
 
     /** Bench position (T7): 2 Pushers + 3 Pushees per side, files C/F and B/D/E. */
@@ -303,8 +301,7 @@ public class EvalSymmetryTest {
         board.updateAllLegaLMoves();
         int whiteOnBlackTurn = white.analyze();
 
-        assertEquals("White's eval must not change with the side to move",
-                whiteOnWhiteTurn, whiteOnBlackTurn);
+        assertEquals(whiteOnWhiteTurn, whiteOnBlackTurn, "White's eval must not change with the side to move");
 
         place(p, false);
         board.setCurrentPlayer(Player.WHITE);
@@ -316,8 +313,7 @@ public class EvalSymmetryTest {
         board.updateAllLegaLMoves();
         int blackOnBlackTurn = black.analyze();
 
-        assertEquals("Black's eval must not change with the side to move",
-                blackOnWhiteTurn, blackOnBlackTurn);
+        assertEquals(blackOnWhiteTurn, blackOnBlackTurn, "Black's eval must not change with the side to move");
     }
 
     // --------------------------------------------------------------- helpers

@@ -4,7 +4,7 @@
 # Homebrew, sdkman, /usr/lib/jvm) and sets JAVA_HOME if none is on PATH.
 #
 #   ./build.sh test    download deps (if missing), compile src/ -> out/,
-#                      run every test class, print the JUnit summary.
+#                      run every test class (JUnit 5), print the summary.
 #
 # Exits non-zero on a missing toolchain, a compile error, or a test failure.
 set -euo pipefail
@@ -15,13 +15,13 @@ cd "$ROOT"
 LIB="lib"
 OUT="out"
 
-# Pinned test dependencies (exact versions and URLs — do not drift).
-JUNIT_VERSION="4.13.2"
-HAMCREST_VERSION="1.3"
-JUNIT_JAR="$LIB/junit-$JUNIT_VERSION.jar"
-HAMCREST_JAR="$LIB/hamcrest-core-$HAMCREST_VERSION.jar"
-JUNIT_URL="https://repo1.maven.org/maven2/junit/junit/$JUNIT_VERSION/junit-$JUNIT_VERSION.jar"
-HAMCREST_URL="https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/$HAMCREST_VERSION/hamcrest-core-$HAMCREST_VERSION.jar"
+# Pinned test dependency (exact version and URL — do not drift).
+# The JUnit Platform console launcher (standalone edition) bundles the JUnit 5
+# (Jupiter) API + engine + assertions in one jar; it replaces the old
+# junit-4.13.2 + hamcrest-core-1.3 pair (nothing imports Hamcrest).
+JUNIT_PLATFORM_VERSION="1.14.4"    # = JUnit Jupiter 5.14.4
+JUPITER_JAR="$LIB/junit-platform-console-standalone-$JUNIT_PLATFORM_VERSION.jar"
+JUPITER_URL="https://repo1.maven.org/maven2/org/junit/platform/junit-platform-console-standalone/$JUNIT_PLATFORM_VERSION/junit-platform-console-standalone-$JUNIT_PLATFORM_VERSION.jar"
 
 usage() {
   echo "Usage: ./build.sh [test]" >&2
@@ -61,13 +61,9 @@ resolve_jdk() {
 
 download_deps() {
   mkdir -p "$LIB"
-  if [[ ! -f "$JUNIT_JAR" ]]; then
-    echo "Downloading $JUNIT_JAR ..."
-    curl -fsSL -o "$JUNIT_JAR" "$JUNIT_URL"
-  fi
-  if [[ ! -f "$HAMCREST_JAR" ]]; then
-    echo "Downloading $HAMCREST_JAR ..."
-    curl -fsSL -o "$HAMCREST_JAR" "$HAMCREST_URL"
+  if [[ ! -f "$JUPITER_JAR" ]]; then
+    echo "Downloading $JUPITER_JAR ..."
+    curl -fsSL -o "$JUPITER_JAR" "$JUPITER_URL"
   fi
 }
 
@@ -78,40 +74,23 @@ compile() {
   sources="$(find src -name '*.java')"
   echo "Compiling $(printf '%s\n' "$sources" | wc -l | tr -d ' ') source files -> $OUT/ ..."
   # shellcheck disable=SC2086
-  javac --release 21 -Xlint:all -cp "$JUNIT_JAR:$HAMCREST_JAR" -d "$OUT" $sources
+  javac --release 21 -Xlint:all -cp "$JUPITER_JAR" -d "$OUT" $sources
 }
 
 run_tests() {
-  # Discover test classes: compiled *.class under out/tests whose simple name
-  # ends in "Test". Excludes inner classes (name contains '$') and any
-  # non-test helper (e.g. a future MockPusherServer).
-  local class_files
-  class_files="$(find "$OUT/tests" -name '*.class' ! -name '*$*' 2>/dev/null || true)"
-  if [[ -z "$class_files" ]]; then
+  if [[ ! -d "$OUT/tests" ]]; then
     echo "ERROR: no compiled test classes found under $OUT/tests." >&2
     return 1
   fi
 
-  local fqcn="" f rel base
-  while IFS= read -r f; do
-    rel="${f#"$OUT"/}"      # tests/GameBoardTest.class
-    rel="${rel%.class}"      # tests/GameBoardTest
-    rel="${rel//\//.}"       # tests.GameBoardTest
-    base="${rel##*.}"
-    if [[ "$base" == *Test ]]; then
-      fqcn="$fqcn $rel"
-    fi
-  done <<< "$class_files"
-  fqcn="$(printf '%s' "$fqcn" | xargs)"  # trim surrounding whitespace
-  if [[ -z "$fqcn" ]]; then
-    echo "ERROR: no test classes (name ending in 'Test') found under $OUT/tests." >&2
-    return 1
-  fi
-
-  echo "Running test classes: $fqcn"
-  # Word-splitting on $fqcn is intentional: fully-qualified class names have no spaces.
-  # shellcheck disable=SC2086
-  java -cp "$OUT:$JUNIT_JAR:$HAMCREST_JAR" org.junit.runner.JUnitCore $fqcn
+  # JUnit 5 console launcher (standalone jar): the default class-name filter
+  # (names starting with "Test" or ending in "Test"/"Tests") selects the test
+  # classes under out/tests and skips helpers like MockPusherServer.
+  # --fail-if-no-tests keeps the old "no test classes -> error" failure mode
+  # (launcher exit status 2).
+  echo "Running tests (JUnit 5 console launcher, package 'tests') ..."
+  java -jar "$JUPITER_JAR" execute --class-path "$OUT" --select-package tests \
+    --fail-if-no-tests --disable-ansi-colors
 }
 
 main() {

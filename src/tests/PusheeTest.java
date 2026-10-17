@@ -2,8 +2,8 @@ package tests;
 
 import game.*;
 
-import static org.junit.Assert.*;
-import org.junit.*;
+import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.*;
 /**
  * Unit tests for the Pushee.java class.
  * @author Samuel Charade

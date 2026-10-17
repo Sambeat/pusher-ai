@@ -9,10 +9,10 @@ import game.Player;
 import game.Pushee;
 import game.Pusher;
 
-import org.junit.After;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * T4: threat &amp; safety evaluation terms.
@@ -47,7 +47,7 @@ public class ThreatEvalTest {
     private final PlayerStrategy black = new PlayerStrategy(Player.BLACK);
     private final GameTree whiteTree = new GameTree(Player.WHITE, Player.BLACK);
 
-    @After
+    @AfterEach
     public void cleanBoard() {
         board.reset();
         board.setCurrentPlayer(Player.WHITE);
@@ -85,10 +85,10 @@ public class ThreatEvalTest {
         board.updateAllLegaLMoves();
         int furtherBack = white.analyze();
 
-        assertTrue("ready-to-win (" + ready + ") must be >= 3x the further-back "
-                + "position (" + furtherBack + ")", ready >= 3 * furtherBack);
-        assertTrue("the ready-to-win bonus must dominate material differences: "
-                + "gap = " + (ready - furtherBack), ready - furtherBack >= 300);
+        assertTrue(ready >= 3 * furtherBack, "ready-to-win (" + ready + ") must be >= 3x the further-back "
+                + "position (" + furtherBack + ")");
+        assertTrue(ready - furtherBack >= 300, "the ready-to-win bonus must dominate material differences: "
+                + "gap = " + (ready - furtherBack));
     }
 
     /**
@@ -110,10 +110,10 @@ public class ThreatEvalTest {
         board.updateAllLegaLMoves();
         int furtherBack = black.analyze();
 
-        assertTrue("ready-to-win (" + ready + ") must be >= 3x the further-back "
-                + "position (" + furtherBack + ")", ready >= 3 * furtherBack);
-        assertTrue("the ready-to-win bonus must dominate material differences: "
-                + "gap = " + (ready - furtherBack), ready - furtherBack >= 300);
+        assertTrue(ready >= 3 * furtherBack, "ready-to-win (" + ready + ") must be >= 3x the further-back "
+                + "position (" + furtherBack + ")");
+        assertTrue(ready - furtherBack >= 300, "the ready-to-win bonus must dominate material differences: "
+                + "gap = " + (ready - furtherBack));
     }
 
     // --------------------------------------------------------------- acceptance 2
@@ -146,9 +146,8 @@ public class ThreatEvalTest {
         board.updateAllLegaLMoves();
         int safe = white.analyze();
 
-        assertTrue("hanging position (" + hanging + ") must score lower than the "
-                + "same position with the Pusher off the square (" + safe + ")",
-                hanging < safe);
+        assertTrue(hanging < safe, "hanging position (" + hanging + ") must score lower than the "
+                + "same position with the Pusher off the square (" + safe + ")");
 
         // Same property for a hanging Pushee: (5,3) is attacked by the Black
         // Pusher on (6,2); moving the Pushee to (5,2) (straight-ahead square,
@@ -167,9 +166,8 @@ public class ThreatEvalTest {
         board.updateAllLegaLMoves();
         int safePushee = white.analyze();
 
-        assertTrue("hanging pushee position (" + hangingPushee + ") must score "
-                + "lower than with the Pushee off the square (" + safePushee + ")",
-                hangingPushee < safePushee);
+        assertTrue(hangingPushee < safePushee, "hanging pushee position (" + hangingPushee + ") must score "
+                + "lower than with the Pushee off the square (" + safePushee + ")");
     }
 
     // --------------------------------------------------------------- acceptance 4
@@ -192,12 +190,10 @@ public class ThreatEvalTest {
                                   String label) {
         int w = whiteEval.getAsInt();
         // Black is evaluated on the same loaded board (the position persists
-        // until the @After reset).
+        // until the @AfterEach reset).
         int b = black.analyze();
-        assertTrue(label + ": white eval " + w + " out of bounds",
-                Math.abs(w) <= 8000 && Math.abs(w) < 9000);
-        assertTrue(label + ": black eval " + b + " out of bounds",
-                Math.abs(b) <= 8000 && Math.abs(b) < 9000);
+        assertTrue(Math.abs(w) <= 8000 && Math.abs(w) < 9000, label + ": white eval " + w + " out of bounds");
+        assertTrue(Math.abs(b) <= 8000 && Math.abs(b) < 9000, label + ": black eval " + b + " out of bounds");
     }
 
     private java.util.function.IntSupplier benchStart() {
@@ -497,8 +493,7 @@ public class ThreatEvalTest {
         board.updateAllLegaLMoves();
         int blackOnMirror = black.analyze();
 
-        assertEquals("T4 terms must mirror identically (T8)",
-                whiteOnP, blackOnMirror);
+        assertEquals(whiteOnP, blackOnMirror, "T4 terms must mirror identically (T8)");
     }
 
     // --------------------------------------------------------------- acceptance 5
@@ -538,9 +533,7 @@ public class ThreatEvalTest {
         Move best = whiteTree.getBestMoveQuick(1);
 
         assertNotNull(best);
-        assertNotEquals("must not play into the push-capture on (5,3)",
-                board.getSquare(5, 3), best.destination());
-        assertEquals("the safe move must be the unique best",
-                expected, best);
+        assertNotEquals(board.getSquare(5, 3), best.destination(), "must not play into the push-capture on (5,3)");
+        assertEquals(expected, best, "the safe move must be the unique best");
     }
 }

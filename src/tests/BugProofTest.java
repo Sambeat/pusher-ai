@@ -3,8 +3,8 @@ package tests;
 import client.*;
 import game.*;
 
-import static org.junit.Assert.*;
-import org.junit.*;
+import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.*;
 
 /**
  * Tests that demonstrate the algorithmic bugs found in review.
@@ -34,7 +34,7 @@ public class BugProofTest {
     private final GameTree whiteTree = new GameTree(Player.WHITE, Player.BLACK);
     private final GameTree blackTree = new GameTree(Player.BLACK, Player.WHITE);
 
-    @After
+    @AfterEach
     public void cleanBoard(){
         board.reset();
         board.setCurrentPlayer(Player.WHITE);
@@ -161,8 +161,8 @@ public class BugProofTest {
         int advanced = evalBlackPusherAt(1, 4);
         int home = evalBlackPusherAt(6, 4);
 
-        assertTrue("advanced piece (" + advanced + ") must be worth more than home piece ("
-                + home + ")", advanced > home);
+        assertTrue(advanced > home, "advanced piece (" + advanced + ") must be worth more than home piece ("
+                + home + ")");
     }
 
     private int evalBlackPusherAt(int row, int col){
@@ -256,8 +256,7 @@ public class BugProofTest {
         }
 
         // ... and must not have killed the piece on the destination square
-        assertTrue("victim on D4 was corrupted by the illegal move",
-                board.getPiece(4, 3) instanceof Pusher);
+        assertTrue(board.getPiece(4, 3) instanceof Pusher, "victim on D4 was corrupted by the illegal move");
     }
 
     // ---------------------------------------------------------------------------------
@@ -299,10 +298,8 @@ public class BugProofTest {
         board.undo(new Move(board.getSquare(7, 3), board.getSquare(6, 4)));
         board.undo(e5f6);
 
-        assertEquals("a capture victim was lost when nested captures shared a square pair",
-                4, board.getNumberOfPieces());
-        assertNotNull("the outer capture's victim must be restored on F6",
-                board.getPiece(5, 5));
+        assertEquals(4, board.getNumberOfPieces(), "a capture victim was lost when nested captures shared a square pair");
+        assertNotNull(board.getPiece(5, 5), "the outer capture's victim must be restored on F6");
         assertEquals(Player.BLACK, board.getPiece(5, 5).getOwner());
         assertNotNull(board.getPiece(4, 4));
         assertNotNull(board.getPiece(3, 5));
@@ -329,12 +326,11 @@ public class BugProofTest {
         board.movePiece(4, 4, 5, 5); //the blocker moves away
         board.revertToState(snapshot); //... and must be back on E5
 
-        assertNotNull("the blocker must be restored on E5", board.getPiece(4, 4));
+        assertNotNull(board.getPiece(4, 4), "the blocker must be restored on E5");
         Piece pusher = board.getPiece(3, 3);
         assertNotNull(pusher);
         for (Move m : pusher.getLegalMovesQuick()) {
-            assertFalse("E5 holds a friendly piece after the revert: it must not be a cached legal destination of D4",
-                    m.destination() == board.getSquare(4, 4));
+            assertFalse(m.destination() == board.getSquare(4, 4), "E5 holds a friendly piece after the revert: it must not be a cached legal destination of D4");
         }
     }
 
@@ -360,9 +356,9 @@ public class BugProofTest {
         GameTree seeded = new GameTree(Player.WHITE, Player.BLACK, 4950, 1L);
         seeded.getBestMoveQuick();
 
-        assertEquals("the search lost a piece", 6, board.getNumberOfPieces());
+        assertEquals(6, board.getNumberOfPieces(), "the search lost a piece");
         Piece pushee = board.getPiece(6, 4);
-        assertNotNull("the Black Pushee on E7 vanished during the search", pushee);
+        assertNotNull(pushee, "the Black Pushee on E7 vanished during the search");
         assertEquals(Player.BLACK, pushee.getOwner());
         assertEquals(0, board.getTurnNumber());
         assertEquals(Player.WHITE, board.getCurrentPlayer());
